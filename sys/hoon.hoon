@@ -958,12 +958,21 @@
     (sub len (met boz dat))
   (swp boz dat)
 ::
+::  Like `rip` but produces n-bit blocks instead of 2^n bit blocks.
+::
+++  ripn
+  ~/  %ripn
+  |=  {bits=@ud x=@}
+  ^-  (list @)
+  ?:  =(0 x)  ~
+  [(end 0 bits x) $(x (rsh 0 bits x))]
+::
 ++  rip                                                 ::  disassemble
   ~/  %rip
-  |=  {a/bloq b/@}
+  |=  {=bloq x=@}
   ^-  (list @)
-  ?:  =(0 b)  ~
-  [(end a 1 b) $(b (rsh a 1 b))]
+  ?:  =(0 x)  ~
+  [(end bloq 1 x) $(x (rsh bloq 1 x))]
 ::
 ++  rsh                                                 ::  right-shift
   ~/  %rsh
@@ -1868,9 +1877,10 @@
   ::
   ++  nap                                               ::  removes head
     ?>  ?=(^ a)
-    ?:  =(~ l.a)  r.a
-    =+  b=get(a l.a)
-    bal(a ^+(a [p.b q.b r.a]))
+    ?~  a  ~
+    =+  b=get
+    ?~  q.b  ~
+    bal(a ^+(a [n=n.q.b l=l.q.b r=r.q.b]))
   ::
   ++  put                                               ::  insert new tail
     |*  b/*
@@ -15386,6 +15396,7 @@
               {$code p/tape}                            ::  code literal
               {$text p/tape}                            ::  text symbol
               {$link p/(list graf) q/tape}              ::  URL
+              {$mage p/tape q/tape}                     ::  image
               {$expr p/tuna:hoot}                       ::  interpolated hoon
           ==
         --
@@ -15514,7 +15525,7 @@
           [[lin `~] +<.^$]
         [[lin ~] eat-newline]
       ::
-      ++  look                                          ::  inspedt line
+      ++  look                                          ::  inspect line
         ^-  (unit trig)
         %+  bind  (wonk (look:parse loc txt))
         |=  a/trig  ^+  a
@@ -15873,6 +15884,16 @@
             (ifix [lit rit] (cash rit))
           ==
         ::
+        ::  ![alt text](url)
+        ::
+          %+  stag  %mage
+          ;~  pfix  zap
+            ;~  (glue (punt whit))
+              (ifix [lac rac] (cash rac))
+              (ifix [lit rit] (cash rit))
+            ==
+          ==
+        ::
         ::  #hoon
         ::
           %+  stag  %list
@@ -15959,6 +15980,7 @@
                      `(list graf)`[%text (tufa ~-~201d. ~)]~
                    ==
             $link  [[%a [%href q.nex] ~] ^$(gaf p.nex)]~
+            $mage  [[%img [%src q.nex] ?~(p.nex ~ [%alt p.nex]~)] ~]~
           ==
         --
       ::
