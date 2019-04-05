@@ -7251,6 +7251,8 @@
   ~/  %cell
   |=  {hed/type tal/type}
   ^-  type
+  :: the cartesian product of the empty set with any set is the empty set
+  ::
   ?:(=(%void hed) %void ?:(=(%void tal) %void [%cell hed tal]))
 ::
 ++  core                                                ::  make %core type
