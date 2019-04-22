@@ -316,9 +316,9 @@
       ::    bone: opaque flow identifier
       ::    packet-hash: hash of acknowledged contents
       ::    error: non-null iff nack (negative acknowledgment)
-      ::    wtf: TODO what is this
+      ::    lag: computation time, for use in congestion control
       ::
-      [%back =bone =packet-hash error=(unit error) wtf=@dr]
+      [%back =bone =packet-hash error=(unit error) lag=@dr]
       ::  %bond: full message
       ::
       ::    message-id: pair of flow id and message sequence number
@@ -1363,6 +1363,23 @@
   ++  decoder-core  .
   ++  abet  [(flop gifts) bone-states]
   ++  give  |=(=gift decoder-core(gifts [gift gifts]))
+  ::
+  ++  decode-packet
+    |=  [=encoding packet=@]
+    ^-  [[authenticated=? =meal] _decoder-core]
+    ::
+    =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =meal]
+        ::
+        %-  (interpret-packet her crypto-core pipe)
+        [encoding packet]
+    ::
+    :-  [authenticated meal]
+    |-  ^+  decoder-core
+    ::
+    ?~  gifts  decoder-core
+    =.  decoder-core  (give i.gifts)
+    $(gifts t.gifts)
+  ::
   ++  work
     |=  =task
     ^+  decoder-core
@@ -1385,25 +1402,21 @@
       abet:(on-message-completed:assembler error.task)
     ::
         %hear
-      =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =meal]
-          ::
-          %-  (interpret-packet her crypto-core pipe)
-          [encoding packet]:task
+      =^  decoded  decoder-core  (decode-packet [encoding packet]:task)
       ::
-      =.  decoder-core
-        |-  ^+  decoder-core
-        ?~  gifts  decoder-core
-        =.  decoder-core  (give i.gifts)
-        $(gifts t.gifts)
+      =?  decoder-core  authenticated.decoded  (give %rout lane.task)
       ::
-      =?  decoder-core  authenticated  (give %rout lane.task)
-      ::
+      =/  =meal  meal.decoded
       ?-    -.meal
+          ::  %back: we heard an ack; emit an ack move internally
+          ::
           %back
         ~|  %unauthenticated-ack-from^her
-        ?>  authenticated
+        ?>  authenticated.decoded
         (give %rack [bone packet-hash error]:meal)
       ::
+          ::  %bond: we heard a full-message packet; assemble and process it
+          ::
           %bond
         =/  =inbound-state
           %-  fall  :_  *inbound-state
@@ -1413,7 +1426,7 @@
           %-  message-assembler  :*
             bone.message-id.meal
             message-seq.message-id.meal
-            authenticated
+            authenticated.decoded
             packet-hash.task
             lane.task
             inbound-state
@@ -1421,6 +1434,8 @@
         ::
         abet:(on-bond:assembler [remote-route message]:meal)
       ::
+          ::  %carp: we heard a message fragment; try to assemble into a message
+          ::
           %carp
         =/  =message-id  message-id.message-descriptor.meal
         ::
@@ -1432,7 +1447,7 @@
           %-  message-assembler  :*
             bone.message-id
             message-seq.message-id
-            authenticated
+            authenticated.decoded
             packet-hash.task
             lane.task
             inbound-state
@@ -1448,6 +1463,8 @@
             message-fragment.meal
         ==
       ::
+          ::  %fore: we heard a packet to forward; convert origin and pass it on
+          ::
           %fore
         =/  =lane  (set-forward-origin lane.task lane.meal)
         (give %fore ship.meal lane payload.meal)
@@ -1471,21 +1488,121 @@
     ++  abet
       decoder-core(bone-states (~(put by bone-states) bone inbound-state))
     ::
+    ++  give  |=(=gift assembler-core(decoder-core (^give gift)))
+    ::
+    ++  give-ack
+      |=  error=(unit error)
+      ^+  assembler-core
+      (give %sack bone packet-hash error)
+    ::
+    ++  give-duplicate-ack
+      (give-ack (~(get by nacks.inbound-state) message-seq))
+    ::
     ++  on-message-completed
       |=  error=(unit error)
       ^+  assembler-core
       ::
-      !!
+      =.  last-acked.inbound-state  +(last-acked.inbound-state)
+      =.  awaiting-application.inbound-state  ~
+      ::
+      =?  nacks.inbound-state  ?=(^ error)
+        (~(put by nacks.inbound-state) message-seq u.error)
+      ::
+      (give-ack error)
+    ::  +on-bond: handle a packet containing a full message
+    ::
     ++  on-bond
       |=  [route=path message=*]
       ^+  assembler-core
+      ::  if we already acked this message, ack it again
+      ::  if later than next expected message or already being processed, ignore
       ::
-      !!
+      ?:  (lth message-seq last-acked.inbound-state)  give-duplicate-ack
+      ?:  (gth message-seq last-acked.inbound-state)  assembler-core
+      ?.  =(~ awaiting-application.inbound-state)     assembler-core
+      ::  record message as in-process and delete partial message
+      ::
+      =.  awaiting-application.inbound-state  `[message-seq packet-hash lane]
+      =.  partial-messages.inbound-state
+        (~(del by partial-messages.inbound-state) message-seq)
+      ::
+      (give [%have bone route message])
+    ::  +on-carp: add a fragment to a partial message, possibly completing it
+    ::
     ++  on-carp
       |=  [=encoding count=@ud fragment-num=@ud fragment=@]
       ^+  assembler-core
       ::
-      !!
+      ?:  (lth message-seq last-acked.inbound-state)  give-duplicate-ack
+      ?:  (gth message-seq last-acked.inbound-state)  assembler-core
+      ::
+      =/  =partial-message
+        %+  fall  (~(get by partial-messages.inbound-state) message-seq)
+        [encoding num-received=0 next-fragment=count fragments=~]
+      ::  all fragments must agree on the message parameters
+      ::
+      ?>  =(encoding.partial-message encoding)
+      ?>  (gth next-fragment.partial-message fragment-num)
+      ?>  =(next-fragment.partial-message count)
+      ::
+      ?:  (~(has by fragments.partial-message) fragment-num)
+        give-duplicate-ack
+      ::  register this fragment in the state
+      ::
+      =.  num-received.partial-message  +(num-received.partial-message)
+      =.  fragments.partial-message
+        (~(put by fragments.partial-message) fragment-num fragment)
+      ::  if we haven't received all fragments, update state and ack packet
+      ::
+      ?.  =(num-received next-fragment):partial-message
+        =.  fragments.partial-message
+          (~(put by fragments.partial-message) message-seq fragment)
+        ::
+        (give-ack ~)
+      ::  assemble and decode complete message
+      ::
+      =/  message-buffer=@
+        (assemble-fragments [next-fragment fragments]:partial-message)
+      ::
+      =^  decoded  decoder-core  (decode-packet encoding message-buffer)
+      ::
+      =.  authenticated  |(authenticated authenticated.decoded)
+      =*  meal  meal.decoded
+      ::
+      ?-    -.meal
+          %back
+        ~|  %ames-back-insecure-from^her
+        ?>  authenticated
+        (give %rack bone [packet-hash error]:meal.decoded)
+      ::
+          %bond
+        ~|  %ames-message-assembly-failed
+        ?>  &(authenticated =([bone message-seq] message-id.meal))
+        ::
+        (on-bond [remote-route message]:meal)
+      ::
+          %carp  ~|(%ames-meta-carp !!)
+          %fore
+        =/  adjusted-lane=^lane  (set-forward-origin lane lane.meal)
+        (give %fore ship.meal adjusted-lane payload.meal)
+      ==
+    ::
+    ++  assemble-fragments
+      =|  index=@
+      =|  sorted-fragments=(list @)
+      ::
+      |=  [next-fragment=@ud fragments=(map @ud @)]
+      ^-  @
+      ::  final packet; concatenate fragment buffers
+      ::
+      ?:  =(next-fragment index)
+        %+  can  13
+        %+  turn  (flop sorted-fragments)
+        |=(a=@ [1 a])
+      ::  not the final packet; find fragment by index and prepend to list
+      ::
+      =/  current-fragment=@  (~(got by fragments) index)
+      $(index +(index), sorted-fragments [current-fragment sorted-fragments])
     --
   --
 ::  +interpret-packet: authenticate and decrypt a packet, effectfully
