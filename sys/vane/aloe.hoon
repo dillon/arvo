@@ -626,10 +626,29 @@
     abet:(hear:friend-core lane packet-hash [encoding payload]:decoded)
   ::
   ++  on-mess
-    |=  [=ship =duct route=path message=*]
+    |=  [her=ship =duct route=path message=*]
     ^+  main-core
     ::
-    !!
+    =/  neighbor-state  (~(get by friends-open.ames-state) her)
+    ?~  neighbor-state
+      =/  =blocked-channel
+        %-  fall  :_  *blocked-channel
+        (~(get by friends-blocked.ames-state) her)
+      ::
+      =.  outbound-messages.blocked-channel
+        [[duct route message] outbound-messages.blocked-channel]
+      ::
+      =.  main-core  (give %veil her)
+      =.  friends-blocked.ames-state
+        (~(put by friends-blocked.ames-state) her blocked-channel)
+      ::
+      main-core
+    ::
+    =/  friend-core  (per-friend-with-state her u.neighbor-state)
+    =^  bone  friend-core  (register-duct:friend-core duct)
+    ::
+    abet:(mess:friend-core bone route message)
+  ::
   ++  on-rend
     |=  [=ship =bone route=path message=*]
     ^+  main-core
@@ -686,6 +705,37 @@
     ::
     ++  handle-decoder-gift
       |=  =gift:message-decoder
+      ^+  friend-core
+      ::
+      !!
+    ++  mess
+      |=  [=bone route=path message=*]
+      ^+  friend-core
+      ::
+      (to-task bone %mess route message)
+    ::  +register-duct: add map between :duct and :next bone; increment :next
+    ::
+    ++  register-duct
+      |=  =duct
+      ^-  [bone _friend-core]
+      ::
+      =/  bone  (~(get by by-duct.bone-manager.friend-state) duct)
+      ?^  bone
+        [u.bone friend-core]
+      ::
+      =/  next=^bone  next.bone-manager.friend-state
+      ::
+      :-  next
+      ::
+      =.  bone-manager.friend-state
+        :+  next=(add 2 next)
+          by-duct=(~(put by by-duct.bone-manager.friend-state) duct next)
+        by-bone=(~(put by by-bone.bone-manager.friend-state) next duct)
+      ::
+      friend-core
+    ::
+    ++  to-task
+      |=  [=bone =task:message-manager]
       ^+  friend-core
       ::
       !!
