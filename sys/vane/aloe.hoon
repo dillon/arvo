@@ -671,6 +671,7 @@
     |=  [her=ship =friend-state]
     |%
     ++  friend-core  .
+    ++  give  |=(=gift friend-core(main-core (^give gift)))
     ++  abet
       =.  friends-open.ames-state
         (~(put by friends-open.ames-state) her friend-state)
@@ -681,6 +682,43 @@
       ^+  friend-core
       ::
       (in-task %done bone error)
+    ::
+    ++  handle-decoder-gifts
+      |=  gifts=(list gift:message-decoder)
+      ^+  friend-core
+      ::
+      ?~  gifts  friend-core
+      =.  friend-core  (handle-decoder-gift i.gifts)
+      $(gifts t.gifts)
+    ::
+    ++  handle-decoder-gift
+      |=  =gift:message-decoder
+      ^+  friend-core
+      ::
+      !!
+    ::
+    ++  handle-message-manager-gifts
+      |=  gifts=(list gift:message-manager)
+      ^+  friend-core
+      ::
+      ?~  gifts  friend-core
+      =.  friend-core  (handle-message-manager-gift i.gifts)
+      $(gifts t.gifts)
+    ::
+    ++  handle-message-manager-gift
+      |=  =gift:message-manager
+      ^+  friend-core
+      ::
+      ?-  -.gift
+          %symmetric-key
+        (give %symmetric-key her [expiration-date symmetric-key]:gift)
+      ::
+          %mack
+        =/  =duct  (~(got by by-bone.bone-manager.friend-state) bone.gift)
+        (give %rest duct error.gift)
+      ::
+          %send  (send ~ payload.gift)
+      ==
     ::
     ++  hear
       |=  [=lane =packet-hash =encoding buffer=@]
@@ -697,17 +735,15 @@
         [her crypto-core.ames-state [pipe inbound]:friend-state]
       ::
       =^  gifts  inbound.friend-state  abet:(work:decoder task)
-      ::
-      |-  ^+  friend-core
-      ?~  gifts  friend-core
-      =.  friend-core  (handle-decoder-gift i.gifts)
-      $(gifts t.gifts)
+      (handle-decoder-gifts gifts)
     ::
-    ++  handle-decoder-gift
-      |=  =gift:message-decoder
-      ^+  friend-core
-      ::
-      !!
+    ++  make-message-manager
+      |=  [=bone =outbound-state]
+      %+  message-manager
+        ^-  pipe-context
+        [our life.ames-state crypto-core.ames-state her pipe.friend-state]
+      [now eny bone outbound-state]
+    ::
     ++  mess
       |=  [=bone route=path message=*]
       ^+  friend-core
@@ -734,11 +770,26 @@
       ::
       friend-core
     ::
+    ++  send
+      |=  [lane=(unit lane) packet=@]
+      ^+  friend-core
+      ::
+      !!
+    ::
     ++  to-task
       |=  [=bone =task:message-manager]
       ^+  friend-core
       ::
-      !!
+      =/  outbound  (~(get by outbound.friend-state) bone)
+      =/  =outbound-state
+        ?^  outbound  u.outbound
+        =|  default=outbound-state
+        default(metrics.pump-state (initialize-pump-metrics:pump now))
+      ::
+      =/  manager  (make-message-manager bone outbound-state)
+      ::
+      =^  gifts  outbound-state  abet:(work:manager task)
+      (handle-message-manager-gifts gifts)
     --
   --
 ::  |message-manager: TODO docs
