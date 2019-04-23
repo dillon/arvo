@@ -516,7 +516,7 @@
         $%  [%east =duct =ship route=path message=*]
             [%home =lane packet=@]
             [%symmetric-key =ship (expiring =symmetric-key)]
-            [%meet =deed]
+            [%meet =ship =life =public-key]
             [%rest =duct error=(unit error)]
             [%send =lane packet=@]
             [%veil =ship]
@@ -695,7 +695,25 @@
       |=  =gift:message-decoder
       ^+  friend-core
       ::
-      !!
+      ?-    -.gift
+          %fore
+        ?:  =(our ship.gift)
+          (give %home [lane packet]:gift)
+        (send(her ship.gift) [`lane packet]:gift)
+      ::
+          %have  (have [bone route message]:gift)
+          %meet  (give gift)
+          %rack  (to-task [bone %back packet-hash error ~s0]:gift)
+          %rout  friend-core(lane.friend-state `lane.gift)
+          %sack  (sack [bone packet-hash error]:gift)
+          %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
+      ::
+      ==
+    ++  handle-symmetric-key-gift
+      |=  =symmetric-key
+      ^+  friend-core
+      ::
+      (give %symmetric-key her (add ~m1 now) symmetric-key)
     ::
     ++  handle-message-manager-gifts
       |=  gifts=(list gift:message-manager)
@@ -710,15 +728,19 @@
       ^+  friend-core
       ::
       ?-  -.gift
-          %symmetric-key
-        (give %symmetric-key her [expiration-date symmetric-key]:gift)
-      ::
           %mack
         =/  =duct  (~(got by by-bone.bone-manager.friend-state) bone.gift)
         (give %rest duct error.gift)
       ::
           %send  (send ~ payload.gift)
+          %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
+    ::
+    ++  have
+      |=  [=bone route=path message=*]
+      ^+  friend-core
+      ::
+      !!
     ::
     ++  hear
       |=  [=lane =packet-hash =encoding buffer=@]
@@ -769,6 +791,12 @@
         by-bone=(~(put by by-bone.bone-manager.friend-state) next duct)
       ::
       friend-core
+    ::
+    ++  sack
+      |=  [=bone =packet-hash error=(unit error)]
+      ^+  friend-core
+      ::
+      !!
     ::
     ++  send
       |=  [lane=(unit lane) packet=@]
