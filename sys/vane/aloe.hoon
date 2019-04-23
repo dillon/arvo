@@ -653,7 +653,8 @@
     |=  [=ship =bone route=path message=*]
     ^+  main-core
     ::
-    !!
+    abet:(mess:(per-friend ship.task) [bone route message]:task)
+  ::
   ++  on-wake
     |=  error=(unit tang)
     ^+  main-core
