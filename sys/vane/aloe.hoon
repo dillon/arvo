@@ -535,44 +535,125 @@
   =|  gifts=(list gift)
   ::
   |=  $:  [now=@da eny=@ our=ship]
-          state=ames-state
+          =ames-state
       ==
   |%
   ++  main-core  .
-  ++  abet  [(flop gifts) state]
+  ++  abet  [(flop gifts) ames-state]
   ++  give  |=(=gift main-core(gifts [gift gifts]))
   ++  work
     |=  =task
     ^+  main-core
     ::
-    ?-    -.task
-        %clue
-      !!
-    ::
-        %done
-      !!
-    ::
-        %hear
-      !!
-    ::
-        %mess
-      !!
-    ::
-        %rend
-      !!
-    ::
-        %wake
-      !!
+    ?-  -.task
+      %clue  (on-clue [ship pipe]:task)
+      %done  (on-done [ship bone error]:task)
+      %hear  (on-hear [lane packet]:task)
+      %mess  (on-mess [ship duct route message]:task)
+      %rend  (on-rend [ship bone route message]:task)
+      %wake  (on-wake error.task)
     ==
+  ::  +on-clue: neighbor update TODO docs and comments
+  ::
+  ++  on-clue
+    |=  [=ship =pipe]
+    ^+  main-core
+    ::
+    =/  blocked  (~(get by friends-blocked.ames-state) ship)
+    ?~  blocked
+      ::  we're not waiting for this ship; we must have it
+      ::
+      =.  friends-open.ames-state
+        %+  ~(jab by friends-open.ames-state)  ship
+        |=  =friend-state
+        friend-state(pipe pipe)
+      ::
+      main-core
+    ::  new neighbor; run all waiting i/o
+    ::
+    =/  =bone-manager  [next=2 by-duct=~ by-bone=~]
+    =/  =friend-state  [pipe lane=~ bone-manager inbound=~ outbound=~]
+    =.  friends-open.ames-state
+      (~(put by friends-open.ames-state) ship friend-state)
+    ::
+    =/  inbound   (flop inbound-packets.u.blocked)
+    ::
+    =.  main-core
+      |-  ^+  main-core
+      ?~  inbound  main-core
+      =.  main-core  (work [%hear i.inbound])
+      $(inbound t.inbound)
+    ::
+    =/  outbound  (flop outbound-messages.u.blocked)
+    ::
+    |-  ^+  main-core
+    ?~  outbound  main-core
+    =.  main-core  (work [%mess ship i.outbound])
+    $(outbound t.outbound)
+  ::
+  ++  on-done
+    |=  [=ship =bone error=(unit error)]
+    ^+  main-core
+    ::
+    abet:(done:(per-friend ship) bone error)
+  ::
+  ++  on-hear
+    |=  [=lane packet=@]
+    ^+  main-core
+    ::
+    !!
+  ++  on-mess
+    |=  [=ship =duct route=path message=*]
+    ^+  main-core
+    ::
+    !!
+  ++  on-rend
+    |=  [=ship =bone route=path message=*]
+    ^+  main-core
+    ::
+    !!
+  ++  on-wake
+    |=  error=(unit tang)
+    ^+  main-core
+    ::
+    !!
   ::
   ++  per-friend
-    |=  [her=ship =friend-state]
+    |=  her=ship
+    =/  =friend-state  (~(got by friends-open.ames-state) her)
     |%
+    ++  friend-core  .
     ++  abet
-      =.  friends-open.state  (~(put by friends-open.state) her friend-state)
+      =.  friends-open.ames-state
+        (~(put by friends-open.ames-state) her friend-state)
       main-core
     ::
-    ++  friend-core  .
+    ++  done
+      |=  [=bone error=(unit error)]
+      ^+  friend-core
+      ::
+      (in-task %done bone error)
+    ::
+    ++  in-task
+      |=  =task:message-decoder
+      ^+  friend-core
+      ::
+      =/  decoder
+        %-  message-decoder
+        [her crypto-core.ames-state [pipe inbound]:friend-state]
+      ::
+      =^  gifts  inbound.friend-state  abet:(work:decoder task)
+      ::
+      |-  ^+  friend-core
+      ?~  gifts  friend-core
+      =.  friend-core  (handle-decoder-gift i.gifts)
+      $(gifts t.gifts)
+    ::
+    ++  handle-decoder-gift
+      |=  =gift:message-decoder
+      ^+  friend-core
+      ::
+      !!
     --
   --
 ::  |message-manager: TODO docs
