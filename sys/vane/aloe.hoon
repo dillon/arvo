@@ -774,7 +774,47 @@
       |=  [lane=(unit lane) packet=@]
       ^+  friend-core
       ::
-      !!
+      ?<  =(our her)
+      =/  her-sponsors=(list ship)  her-sponsors.pipe.friend-state
+      ::
+      |-  ^+  friend-core
+      ?~  her-sponsors  friend-core
+      ::
+      =/  new-lane=(unit ^lane)
+        ?:  (lth i.her-sponsors 256)
+          ::  galaxies are mapped into reserved IP space, which the interpreter
+          ::  converts to a DNS request
+          ::
+          `[%if ~2000.1.1 31.337 (mix i.her-sponsors .0.0.1.0)]
+        ::
+        ?:  =(her i.her-sponsors)  lane.friend-state
+        =/  neighbor-state  (~(get by friends-open.ames-state) i.her-sponsors)
+        ?~  neighbor-state
+          ~
+        lane.u.neighbor-state
+      ::  if no lane, try next sponsor
+      ::
+      ?~  new-lane
+        $(her-sponsors t.her-sponsors)
+      ::  forwarded packets are not signed/encrypted,
+      ::  because (a) we don't need to; (b) we don't
+      ::  want to turn one packet into two.  the wrapped
+      ::  packet may exceed 8192 bits, but it's unlikely
+      ::  to blow the MTU (IP MTU == 1500).
+      ::
+      =?  packet  |(!=(her i.her-sponsors) !=(~ lane))
+        ::
+        %-  encode-packet
+        ^-  ^packet
+        [[our i.her-sponsors] %none (jam `meal`[%fore her lane packet])]
+      ::
+      =.  friend-core  (give %send u.new-lane packet)
+      ::  stop if we have an %if (direct) address;
+      ::  continue if we only have %ix (forwarded).
+      ::
+      ?:  ?=(%if -.u.new-lane)
+        friend-core
+      $(her-sponsors t.her-sponsors)
     ::
     ++  to-task
       |=  [=bone =task:message-manager]
