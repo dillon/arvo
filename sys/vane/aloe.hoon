@@ -705,15 +705,22 @@
           %meet  (give gift)
           %rack  (to-task [bone %back packet-hash error ~s0]:gift)
           %rout  friend-core(lane.friend-state `lane.gift)
-          %sack  (sack [bone packet-hash error]:gift)
+          %sack  (send-ack [bone packet-hash error]:gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ::
       ==
-    ++  handle-symmetric-key-gift
-      |=  =symmetric-key
+    ::
+    ++  handle-encode-meal-gifts
+      |=  gifts=(list gift:encode-meal)
       ^+  friend-core
       ::
-      (give %symmetric-key her (add ~m1 now) symmetric-key)
+      ?~  gifts  friend-core
+      ::
+      =.  friend-core
+        ?>  ?=(%symmetric-key -.i.gifts)
+        (give %symmetric-key her [expiration-date symmetric-key]:i.gifts)
+      ::
+      $(gifts t.gifts)
     ::
     ++  handle-message-manager-gifts
       |=  gifts=(list gift:message-manager)
@@ -736,11 +743,26 @@
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
     ::
+    ++  handle-symmetric-key-gift
+      |=  =symmetric-key
+      ^+  friend-core
+      ::
+      (give %symmetric-key her (add ~m1 now) symmetric-key)
+    ::  +have: receive message; relay to client vane by bone parity
+    ::
     ++  have
       |=  [=bone route=path message=*]
       ^+  friend-core
+      ::  even bone means backward flow, like a subscription update; always ack
       ::
-      !!
+      ?:  =(0 (end 0 1 bone))
+        =/  =duct  (~(got by by-bone.bone-manager.friend-state) bone)
+        ::
+        =.  friend-core  (in-task %done bone ~)
+        (give %east duct her route message)
+      ::  odd bone, forward flow; wait for client vane to ack the message
+      ::
+      (give %west her bone route message)
     ::
     ++  hear
       |=  [=lane =packet-hash =encoding buffer=@]
@@ -791,12 +813,33 @@
         by-bone=(~(put by by-bone.bone-manager.friend-state) next duct)
       ::
       friend-core
+    ::  +send-ack: send acknowledgment
     ::
-    ++  sack
+    ++  send-ack
       |=  [=bone =packet-hash error=(unit error)]
       ^+  friend-core
       ::
-      !!
+      =+  ^-  [gifts=(list gift:encode-meal) fragments=(list @)]
+          ::
+          %-  %-  encode-meal
+              ^-  pipe-context
+              :*  our
+                  life.ames-state
+                  crypto-core.ames-state
+                  her
+                  pipe.friend-state
+              ==
+          :+  now  eny
+          ^-  meal
+          [%back (mix bone 1) packet-hash error ~s0]
+      ::
+      =.  friend-core  (handle-encode-meal-gifts gifts)
+      ::
+      |-  ^+  friend-core
+      ?~  fragments  friend-core
+      =.  friend-core  (send ~ i.fragments)
+      $(fragments t.fragments)
+    ::  +send: send packet; TODO document :lane arg
     ::
     ++  send
       |=  [lane=(unit lane) packet=@]
@@ -1515,7 +1558,7 @@
             ::    This core can produce an upgrade to a shared symmetric key,
             ::    which is much faster; hence the %fast tag on that encryption.
             ::
-            [%symmetric-key symmetric-key=(expiring symmetric-key)]
+            [%symmetric-key (expiring =symmetric-key)]
         ==
       --
   ::  outer gate: establish pki context, producing inner gate
