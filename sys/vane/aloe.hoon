@@ -598,10 +598,33 @@
     abet:(done:(per-friend ship) bone error)
   ::
   ++  on-hear
-    |=  [=lane packet=@]
+    |=  [=lane raw-packet=@]
     ^+  main-core
     ::
-    !!
+    =/  decoded=packet  (decode-packet raw-packet)
+    ?>  =(our to.decoded)
+    =/  her=ship  from.decoded
+    ::
+    =/  neighbor-state  (~(get by friends-open.ames-state) her)
+    ?~  neighbor-state
+      =/  =blocked-channel
+        %-  fall  :_  *blocked-channel
+        (~(get by friends-blocked.ames-state) her)
+      ::
+      =.  inbound-packets.blocked-channel
+        [[lane raw-packet] inbound-packets.blocked-channel]
+      ::
+      =.  main-core  (give %veil her)
+      =.  friends-blocked.ames-state
+        (~(put by friends-blocked.ames-state) her blocked-channel)
+      ::
+      main-core
+    ::
+    =/  friend-core   (per-friend-with-state her u.neighbor-state)
+    =/  =packet-hash  (shaf %flap raw-packet)
+    ::
+    abet:(hear:friend-core lane packet-hash [encoding payload]:decoded)
+  ::
   ++  on-mess
     |=  [=ship =duct route=path message=*]
     ^+  main-core
@@ -617,10 +640,16 @@
     ^+  main-core
     ::
     !!
+  ::  +per-friend: convenience constructor for |friend-core
   ::
   ++  per-friend
     |=  her=ship
     =/  =friend-state  (~(got by friends-open.ames-state) her)
+    (per-friend-with-state her friend-state)
+  ::  +per-friend-with-state: full constructor for |friend-core
+  ::
+  ++  per-friend-with-state
+    |=  [her=ship =friend-state]
     |%
     ++  friend-core  .
     ++  abet
@@ -633,6 +662,12 @@
       ^+  friend-core
       ::
       (in-task %done bone error)
+    ::
+    ++  hear
+      |=  [=lane =packet-hash =encoding buffer=@]
+      ^+  friend-core
+      ::
+      (in-task %hear lane packet-hash encoding buffer)
     ::
     ++  in-task
       |=  =task:message-decoder
