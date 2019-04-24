@@ -541,6 +541,9 @@
   ++  main-core  .
   ++  abet  [(flop gifts) ames-state]
   ++  give  |=(=gift main-core(gifts [gift gifts]))
+  ++  give-many
+    |=(gs=(list gift) main-core(gifts `(list gift)`(weld gs gifts)))
+  ::
   ++  work
     |=  =task
     ^+  main-core
@@ -654,12 +657,38 @@
     ^+  main-core
     ::
     abet:(mess:(per-friend ship) bone route message)
+  ::  TODO refactor
   ::
   ++  on-wake
     |=  error=(unit tang)
     ^+  main-core
     ::
-    !!
+    ?~  friends-open.ames-state
+      main-core
+    ::
+    =+  [n l r]=friends-open.ames-state
+    ::
+    =/  lef  $(friends-open.ames-state l)
+    =/  ryt  $(friends-open.ames-state r)
+    =/  top  (to-wake:(per-friend-with-state n) error)
+    ::  TMI
+    ::
+    =>  %=    .
+            friends-open.ames-state
+          `(map ship friend-state)`friends-open.ames-state
+        ==
+    ::
+    =.  main-core  (give-many gifts.lef)
+    =.  main-core  (give-many gifts.ryt)
+    =.  main-core  (give-many gifts.top)
+    ::
+    =.  friends-open.ames-state
+      :*  ^=  n  [her friend-state]:top
+          ^=  l  friends-open.ames-state.lef
+          ^=  r  friends-open.ames-state.ryt
+      ==
+    ::
+    main-core
   ::  +per-friend: convenience constructor for |friend-core
   ::
   ++  per-friend
@@ -673,6 +702,7 @@
     |%
     ++  friend-core  .
     ++  give  |=(=gift friend-core(main-core (^give gift)))
+    ++  give-many  |=(gs=(list gift) friend-core(main-core (^give-many gs)))
     ++  abet
       =.  friends-open.ames-state
         (~(put by friends-open.ames-state) her friend-state)
@@ -715,32 +745,32 @@
       |=  gifts=(list gift:encode-meal)
       ^+  friend-core
       ::
-      ?~  gifts  friend-core
+      %-  give-many
+      %+  turn  gifts
+      |=  =gift:encode-meal
+      ^-  ^gift
       ::
-      =.  friend-core
-        ?>  ?=(%symmetric-key -.i.gifts)
-        (give %symmetric-key her [expiration-date symmetric-key]:i.gifts)
-      ::
-      $(gifts t.gifts)
+      ?>  ?=(%symmetric-key -.gift)
+      [%symmetric-key her [expiration-date symmetric-key]:gift]
+  ::
+  ++  handle-message-manager-gifts
+    |=  gifts=(list gift:message-manager)
+    ^+  friend-core
     ::
-    ++  handle-message-manager-gifts
-      |=  gifts=(list gift:message-manager)
-      ^+  friend-core
-      ::
-      ?~  gifts  friend-core
-      =.  friend-core  (handle-message-manager-gift i.gifts)
-      $(gifts t.gifts)
+    ?~  gifts  friend-core
+    =.  friend-core  (handle-message-manager-gift i.gifts)
+    $(gifts t.gifts)
+  ::
+  ++  handle-message-manager-gift
+    |=  =gift:message-manager
+    ^+  friend-core
     ::
-    ++  handle-message-manager-gift
-      |=  =gift:message-manager
-      ^+  friend-core
-      ::
-      ?-  -.gift
-          %mack
-        =/  =duct  (~(got by by-bone.bone-manager.friend-state) bone.gift)
-        (give %rest duct error.gift)
-      ::
-          %send  (send ~ payload.gift)
+    ?-  -.gift
+        %mack
+      =/  =duct  (~(got by by-bone.bone-manager.friend-state) bone.gift)
+      (give %rest duct error.gift)
+    ::
+        %send  (send ~ payload.gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
     ::
@@ -902,6 +932,35 @@
       ::
       =^  gifts  outbound-state  abet:(work:manager task)
       (handle-message-manager-gifts gifts)
+    ::
+    ++  to-wake
+      |=  error=(unit tang)
+      ^+  friend-core
+      ::
+      ?~  outbound.friend-state  friend-core
+      ::
+      =/  lef      $(outbound.friend-state l.outbound.friend-state)
+      =/  ryt      $(outbound.friend-state r.outbound.friend-state)
+      =/  manager  (make-message-manager n.outbound.friend-state)
+      =/  top      (work:manager %wake error)
+      ::  TMI
+      ::
+      =>  %=    .
+              outbound.friend-state
+            `(map bone outbound-state)`outbound.friend-state
+          ==
+      ::
+      =.  friend-core  (give-many gifts.lef)
+      =.  friend-core  (give-many gifts.ryt)
+      =.  friend-core  (handle-message-manager-gifts gifts.top)
+      ::
+      =.  outbound.friend-state
+        :*  ^=  n  [bone outbound-state]:top
+            ^=  l  outbound.friend-state.lef
+            ^=  r  outbound.friend-state.ryt
+        ==
+      ::
+      friend-core
     --
   --
 ::  |message-manager: TODO docs
@@ -929,7 +988,7 @@
             [%mess remote-route=path message=*]
             ::  %wake: handle an elapsed timer
             ::
-            [%wake ~]
+            [%wake error=(unit tang)]
         ==
       --
   |=  [pipe-context now=@da eny=@ =bone =outbound-state]
@@ -964,7 +1023,7 @@
     ?-  -.task
       %back  (handle-packet-ack [packet-hash error lag]:task)
       %mess  (handle-message-request [remote-route message]:task)
-      %wake  wake
+      %wake  (wake error.task)
     ==
   ::  +drain-pump-gifts: extract and apply pump effects, clearing pump
   ::
@@ -1162,10 +1221,11 @@
     $(till-tick.outbound-state +(till-tick.outbound-state))
   ::
   ++  wake
+    |=  error=(unit tang)
     ^+  manager-core
     ::
     =^  pump-gifts  pump-state.outbound-state
-      (work:pump pump-ctx now %wake ~)
+      (work:pump pump-ctx now %wake error)
     ::
     (drain-pump-gifts pump-gifts)
   ::
@@ -1202,7 +1262,7 @@
             ::
             ::    TODO: revisit after timer refactor
             ::
-            [%wake ~]
+            [%wake error=(unit tang)]
         ==
       ::  +pump-context: mutable state for running the pump
       ::
@@ -1223,7 +1283,7 @@
       %back  (back ctx now [packet-hash error lag]:task)
       %cull  [gifts.ctx (cull state.ctx message-seq.task)]
       %pack  (send-packets ctx now packets.task)
-      %wake  [gifts.ctx (wake state.ctx now)]
+      %wake  [gifts.ctx (wake state.ctx now error.task)]
     ==
   ::  +abet: finalize before returning, reversing effects
   ::
@@ -1494,8 +1554,10 @@
   ::  +wake: handle elapsed timer
   ::
   ++  wake
-    |=  [state=pump-state now=@da]
+    |=  [state=pump-state now=@da error=(unit tang)]
     ^-  pump-state
+    ::
+    ?^  error  ~|(%ames-todo-handle-timer-error^u.error !!)
     ::
     =-  =.  live.state  live.-
         (lose state dead.-)
