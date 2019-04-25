@@ -206,8 +206,11 @@
 +$  ames-state
   $:  =life
       crypto-core=acru:ames
-      pending-pki=(map ship blocked-channel)
-      peers=(map ship peer-state)
+      $=  peers
+      %+  map  ship
+      $%  [%pending-pki =blocked-actions]
+          [%peer =peer-state]
+      ==
   ==
 +$  peer-state
   $:  =pki-info
@@ -221,7 +224,7 @@
       by-duct=(map duct bone)
       by-bone=(map bone duct)
   ==
-+$  blocked-channel
++$  blocked-actions
   $:  inbound-packets=(list [=lane packet=@])
       outbound-messages=(list [=duct route=path message=*])
   ==
@@ -305,9 +308,6 @@
           last-sent=@da
           last-deadline=@da
   ==  ==
-::  +pki-context: context for messaging between :our and peer
-::
-+$  pki-context  [our=ship =our=life crypto-core=acru:ames her=ship =pki-info]
 ::  +meal: packet payload
 ::
 +$  meal
@@ -341,6 +341,9 @@
       ::
       [%fore =ship lane=(unit lane) payload=@]
   ==
+::  +pki-context: context for messaging between :our and peer
+::
++$  pki-context  [our=ship =our=life crypto-core=acru:ames her=ship =pki-info]
 ::  +pki-info: (possibly) secure channel between our and her
 ::
 ::    Everything we need to encode or decode a message between our and her.
@@ -350,7 +353,7 @@
 ::
 +$  pki-info
   $:  fast-key=(unit [=key-hash key=(expiring =symmetric-key)])
-      her-life=(unit life)
+      =her=life
       her-public-keys=(map life public-key)
       her-sponsors=(list ship)
   ==
@@ -562,14 +565,13 @@
     |=  [=ship =pki-info]
     ^+  main-core
     ::
-    =/  blocked  (~(get by pending-pki.ames-state) ship)
-    ?~  blocked
+    =/  ship-state  (~(got by peers.ames-state) ship)
+    ?:  ?=(%peer -.ship-state)
       ::  we're not waiting for this ship; we must have it
       ::
       =.  peers.ames-state
-        %+  ~(jab by peers.ames-state)  ship
-        |=  =peer-state
-        peer-state(pki-info pki-info)
+        %+  ~(put by peers.ames-state)  ship
+        ship-state(pki-info.peer-state pki-info)
       ::
       main-core
     ::  new peer; run all waiting i/o
@@ -577,9 +579,9 @@
     =/  =bone-manager  [next=2 by-duct=~ by-bone=~]
     =/  =peer-state  [pki-info lane=~ bone-manager inbound=~ outbound=~]
     =.  peers.ames-state
-      (~(put by peers.ames-state) ship peer-state)
+      (~(put by peers.ames-state) ship [%peer peer-state])
     ::
-    =/  inbound   (flop inbound-packets.u.blocked)
+    =/  inbound   (flop inbound-packets.blocked-actions.ship-state)
     ::
     =.  main-core
       |-  ^+  main-core
@@ -587,7 +589,7 @@
       =.  main-core  (work [%hear i.inbound])
       $(inbound t.inbound)
     ::
-    =/  outbound  (flop outbound-messages.u.blocked)
+    =/  outbound  (flop outbound-messages.blocked-actions.ship-state)
     ::
     |-  ^+  main-core
     ?~  outbound  main-core
@@ -608,49 +610,53 @@
     ?>  =(our to.decoded)
     =/  her=ship  from.decoded
     ::
-    =/  peer-state  (~(get by peers.ames-state) her)
-    ?~  peer-state
-      =/  =blocked-channel
-        %-  fall  :_  *blocked-channel
-        (~(get by pending-pki.ames-state) her)
+    =/  ship-state  (~(get by peers.ames-state) her)
+    ?:  ?=([~ %peer *] ship-state)
+      =/  peer-core  (per-peer-with-state her peer-state.u.ship-state)
+      =/  =packet-hash  (shaf %flap raw-packet)
       ::
-      =.  inbound-packets.blocked-channel
-        [[lane raw-packet] inbound-packets.blocked-channel]
-      ::
-      =.  main-core  (give %veil her)
-      =.  pending-pki.ames-state
-        (~(put by pending-pki.ames-state) her blocked-channel)
-      ::
-      main-core
+      abet:(hear:peer-core lane packet-hash [encoding payload]:decoded)
     ::
-    =/  peer-core   (per-peer-with-state her u.peer-state)
-    =/  =packet-hash  (shaf %flap raw-packet)
+    =/  =blocked-actions
+      ?~  ship-state
+        *blocked-actions
+      blocked-actions.u.ship-state
     ::
-    abet:(hear:peer-core lane packet-hash [encoding payload]:decoded)
+    =.  inbound-packets.blocked-actions
+      [[lane raw-packet] inbound-packets.blocked-actions]
+    ::
+    =.  main-core  (give %veil her)
+    =.  peers.ames-state
+      (~(put by peers.ames-state) her [%pending-pki blocked-actions])
+    ::
+    main-core
   ::
   ++  on-mess
     |=  [her=ship =duct route=path message=*]
     ^+  main-core
     ::
-    =/  peer-state  (~(get by peers.ames-state) her)
-    ?~  peer-state
-      =/  =blocked-channel
-        %-  fall  :_  *blocked-channel
-        (~(get by pending-pki.ames-state) her)
+    =/  ship-state  (~(get by peers.ames-state) her)
+    ?:  ?=([~ %peer *] ship-state)
+      =/  peer-core  (per-peer-with-state her peer-state.u.ship-state)
+      =^  bone  peer-core  (register-duct:peer-core duct)
       ::
-      =.  outbound-messages.blocked-channel
-        [[duct route message] outbound-messages.blocked-channel]
-      ::
-      =.  main-core  (give %veil her)
-      =.  pending-pki.ames-state
-        (~(put by pending-pki.ames-state) her blocked-channel)
-      ::
-      main-core
+      abet:(mess:peer-core bone route message)
     ::
-    =/  peer-core  (per-peer-with-state her u.peer-state)
-    =^  bone  peer-core  (register-duct:peer-core duct)
+    =/  =blocked-actions
+      ?~  ship-state
+        *blocked-actions
+      blocked-actions.u.ship-state
     ::
-    abet:(mess:peer-core bone route message)
+    =.  outbound-messages.blocked-actions
+      [[duct route message] outbound-messages.blocked-actions]
+    ::
+    ::  XX if her is comet or moon, send %open
+    ::
+    =.  main-core  (give %veil her)
+    =.  peers.ames-state
+      (~(put by peers.ames-state) her [%pending-pki blocked-actions])
+    ::
+    main-core
   ::
   ++  on-rend
     |=  [=ship =bone route=path message=*]
@@ -663,27 +669,30 @@
     |=  error=(unit tang)
     ^+  main-core
     ::
+    =/  old-peers  peers.ames-state
     ?~  peers.ames-state
       main-core
     ::
-    =+  [n l r]=peers.ames-state
+    =+  [n l r]=[n l r]:peers.ames-state
+    =+  [her ship-state]=[p q]:n
     ::
     =/  lef  $(peers.ames-state l)
     =/  ryt  $(peers.ames-state r)
-    =/  top  (to-wake:(per-peer-with-state n) error)
+    =^  gifts-top  ship-state
+      ?:  ?=(%pending-pki -.ship-state)
+        [~ ship-state]
+      =/  peer-core  (per-peer-with-state her peer-state.ship-state)
+      [gifts [%peer peer-state]]:(to-wake:peer-core error)
     ::  TMI
     ::
-    =>  %=    .
-            peers.ames-state
-          `(map ship peer-state)`peers.ames-state
-        ==
+    =>  .(peers.ames-state `_old-peers`peers.ames-state)
     ::
     =.  main-core  (give-many gifts.lef)
     =.  main-core  (give-many gifts.ryt)
-    =.  main-core  (give-many gifts.top)
+    =.  main-core  (give-many gifts-top)
     ::
     =.  peers.ames-state
-      :*  ^=  n  [her peer-state]:top
+      :*  ^=  n  [her ship-state]
           ^=  l  peers.ames-state.lef
           ^=  r  peers.ames-state.ryt
       ==
@@ -693,8 +702,9 @@
   ::
   ++  per-peer
     |=  her=ship
-    =/  =peer-state  (~(got by peers.ames-state) her)
-    (per-peer-with-state her peer-state)
+    =/  ship-state  (~(got by peers.ames-state) her)
+    ?>  ?=(%peer -.ship-state)
+    (per-peer-with-state her peer-state.ship-state)
   ::  +per-peer-with-state: full constructor for |peer-core
   ::
   ++  per-peer-with-state
@@ -705,7 +715,7 @@
     ++  give-many  |=(gs=(list gift) peer-core(main-core (^give-many gs)))
     ++  abet
       =.  peers.ames-state
-        (~(put by peers.ames-state) her peer-state)
+        (~(put by peers.ames-state) her [%peer peer-state])
       main-core
     ::
     ++  done
@@ -752,25 +762,25 @@
       ::
       ?>  ?=(%symmetric-key -.gift)
       [%symmetric-key her [expiration-date symmetric-key]:gift]
-  ::
-  ++  handle-message-manager-gifts
-    |=  gifts=(list gift:message-manager)
-    ^+  peer-core
     ::
-    ?~  gifts  peer-core
-    =.  peer-core  (handle-message-manager-gift i.gifts)
-    $(gifts t.gifts)
-  ::
-  ++  handle-message-manager-gift
-    |=  =gift:message-manager
-    ^+  peer-core
+    ++  handle-message-manager-gifts
+      |=  gifts=(list gift:message-manager)
+      ^+  peer-core
+      ::
+      ?~  gifts  peer-core
+      =.  peer-core  (handle-message-manager-gift i.gifts)
+      $(gifts t.gifts)
     ::
-    ?-  -.gift
-        %mack
-      =/  =duct  (~(got by by-bone.bone-manager.peer-state) bone.gift)
-      (give %rest duct error.gift)
-    ::
-        %send  (send ~ payload.gift)
+    ++  handle-message-manager-gift
+      |=  =gift:message-manager
+      ^+  peer-core
+      ::
+      ?-  -.gift
+          %mack
+        =/  =duct  (~(got by by-bone.bone-manager.peer-state) bone.gift)
+        (give %rest duct error.gift)
+      ::
+          %send  (send ~ payload.gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
     ::
@@ -828,7 +838,7 @@
     ::
     ++  register-duct
       |=  =duct
-      ^-  [bone _friend-core]
+      ^-  [bone _peer-core]
       ::
       =/  bone  (~(get by by-duct.bone-manager.peer-state) duct)
       ?^  bone
@@ -890,10 +900,12 @@
           `[%if ~2000.1.1 31.337 (mix i.her-sponsors .0.0.1.0)]
         ::
         ?:  =(her i.her-sponsors)  lane.peer-state
-        =/  peer-state  (~(get by peers.ames-state) i.her-sponsors)
-        ?~  peer-state
+        =/  ship-state  (~(get by peers.ames-state) i.her-sponsors)
+        ?~  ship-state
           ~
-        lane.u.peer-state
+        ?:  ?=(%pending-pki -.u.ship-state)
+          ~
+        lane.peer-state.u.ship-state
       ::  if no lane, try next sponsor
       ::
       ?~  new-lane
@@ -1685,16 +1697,6 @@
       %^  cat  7
         key-hash.u.fast-key.pki-info
       (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam meal))
-    ::  if we don't know their life, just sign this packet without encryption
-    ::
-    ?~  her-life.pki-info
-      :-  ~
-      :-  %open
-      %-  jam
-      ^-  open:packet-format
-      :+  our-life
-        deed=~
-      (sign:as:crypto-core (jam meal))
     ::  asymmetric encrypt; also produce symmetric key gift for upgrade
     ::
     ::    Generate a new symmetric key by hashing entropy, the date,
@@ -1712,14 +1714,14 @@
     ^-  full:packet-format
     ::  TODO: send our deed if we're a moon or comet
     ::
-    :+  [to=u.her-life.pki-info from=our-life]  deed=~
+    :+  [to=her-life.pki-info from=our-life]  deed=~
     ::  encrypt the pair of [new-symmetric-key (jammed-meal)] for her eyes only
     ::
     ::    This sends the new symmetric key by piggy-backing it onto the
     ::    original message.
     ::
     %+  seal:as:crypto-core
-      (~(got by her-public-keys.pki-info) u.her-life.pki-info)
+      (~(got by her-public-keys.pki-info) her-life.pki-info)
     (jam [new-symmetric-key (jam meal)])
   --
 ::  |message-decoder: decode and assemble input packets into messages
@@ -2048,10 +2050,10 @@
     ::  TODO: is this assertion at all correct?
     ::  TODO: make sure the deed gets applied to the pki-info if needed
     ::
-    ?>  =((need her-life.pki-info) from-life.open-packet)
+    ?>  =(her-life.pki-info from-life.open-packet)
     ::
     =/  her-public-key
-      (~(got by her-public-keys.pki-info) (need her-life.pki-info))
+      (~(got by her-public-keys.pki-info) her-life.pki-info)
     ::
     %+  produce-meal  authenticated=%.y
     %-  need
@@ -2087,10 +2089,10 @@
     ::  TODO: is this assertion valid if we hear a new deed?
     ::
     ~|  [%ames-life-mismatch her her-life.pki-info from-life.full-packet]
-    ?>  =((need her-life.pki-info) from-life.full-packet)
+    ?>  =(her-life.pki-info from-life.full-packet)
     ::
     =/  her-public-key
-      (~(got by her-public-keys.pki-info) (need her-life.pki-info))
+      (~(got by her-public-keys.pki-info) her-life.pki-info)
     =/  jammed-wrapped=@
       %-  need
       (tear:as:crypto-core her-public-key encrypted-payload.full-packet)
@@ -2099,7 +2101,7 @@
         (cue jammed-wrapped)
     ::
     =.  decoder-core  (give %symmetric-key symmetric-key)
-    =.  decoder-core  (give %meet her (need her-life.pki-info) her-public-key)
+    =.  decoder-core  (give %meet her her-life.pki-info her-public-key)
     ::
     (produce-meal authenticated=%.y jammed-message)
   ::  +apply-deed: produce a %meet gift if the deed checks out

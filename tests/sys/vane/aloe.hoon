@@ -66,8 +66,8 @@
     %-  interpret-packet:aloe  :*
       her.fix
       our-crub.fix
-      ^-  pipe:aloe
-      [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+      ^-  pki-info:aloe
+      [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
     ==
   ::
   %+  expect-eq
@@ -87,8 +87,8 @@
     %-  interpret-packet:aloe  :*
       her.fix
       our-crub.fix
-      ^-  pipe:aloe
-      [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+      ^-  pki-info:aloe
+      [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
     ==
   ::
   =/  interpreted
@@ -113,13 +113,13 @@
     %-  interpret-packet:aloe  :*
       her.fix
       our-crub.fix
-      ^-  pipe:aloe
+      ^-  pki-info:aloe
       :*  :-  ~
           :+  key-hash=`@uvH`hashed-key
             expiration-date=`@da`(add ~d1 now.fix)
           value=symmetric-key
       ::
-          `her-life.fix
+          her-life.fix
           her-public-keys.fix
           her-sponsors.fix
       ==
@@ -148,8 +148,8 @@
     %-  interpret-packet:aloe  :*
       her.fix
       our-crub.fix
-      ^-  pipe:aloe
-      [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+      ^-  pki-info:aloe
+      [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
     ==
   ::
   =/  interpreted
@@ -176,8 +176,8 @@
       our-life.fix
       our-crub.fix
       her.fix
-      ^-  pipe:aloe
-      [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+      ^-  pki-info:aloe
+      [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
     ==
   ::
   =/  packet      %packet-foo
@@ -200,8 +200,8 @@
       our-life.fix
       our-crub.fix
       her.fix
-      ^-  pipe:aloe
-      [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+      ^-  pki-info:aloe
+      [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
     ==
   ::
   =/  message     [%message (gulf 1 2.000)]
@@ -254,8 +254,8 @@
       our-life.fix
       our-crub.fix
       her.fix
-      ^-  pipe:aloe
-      [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+      ^-  pki-info:aloe
+      [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
     ==
   ::
   =/  message     [%message %foo %bar]
@@ -394,10 +394,10 @@
 ::
 ++  test-message-manager-mess-basic  ^-  tang
   ::
-  =/  =pipe-context:aloe
+  =/  =pki-context:aloe
     =-  [our.fix our-life.fix our-crub.fix her.fix -]
-    ^-  pipe:aloe
-    [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+    ^-  pki-info:aloe
+    [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
   ::
   =/  =pump-state:aloe
     :+  live=~
@@ -413,7 +413,7 @@
   ::
   =/  manager0
     %-  message-manager:aloe
-    [pipe-context now.fix eny.fix bone=4 outbound-state]
+    [pki-context now.fix eny.fix bone=4 outbound-state]
   ::
   =/  manager1
     %-  work:manager0
@@ -461,10 +461,10 @@
 ::
 ++  test-message-manager-mess-fragments  ^-  tang
   ::
-  =/  =pipe-context:aloe
+  =/  =pki-context:aloe
     =-  [our.fix our-life.fix our-crub.fix her.fix -]
-    ^-  pipe:aloe
-    [fast-key=~ `her-life.fix her-public-keys.fix her-sponsors.fix]
+    ^-  pki-info:aloe
+    [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
   ::
   =/  =pump-state:aloe
     :+  live=~
@@ -480,7 +480,7 @@
   ::
   =/  manager0
     %-  message-manager:aloe
-    [pipe-context now.fix eny.fix bone=4 outbound-state]
+    [pki-context now.fix eny.fix bone=4 outbound-state]
   ~&  %manager0
   ::
   =/  manager1
@@ -497,7 +497,7 @@
   =/  new-date  `@da`(add now.fix ~s10)
   =/  manager2
     %-  message-manager:aloe
-    [pipe-context new-date eny.fix bone=4 outbound-state.result1]
+    [pki-context new-date eny.fix bone=4 outbound-state.result1]
   ~&  :-  %manager2
       (window-slots:pump:aloe metrics.pump-state.outbound-state.manager2)
   ::
