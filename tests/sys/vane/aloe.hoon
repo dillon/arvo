@@ -45,14 +45,14 @@
 |%
 ++  test-packet-encoding  ^-  tang
   ::
-  =/  =packet:aloe
+  =/  =raw-packet:aloe
     [[to=~nec from=~doznec-doznec] encoding=%none payload=(jam [42 43])]
   ::
-  =/  encoded  (encode-packet:aloe packet)
-  =/  decoded  (decode-packet:aloe encoded)
+  =/  encoded  (encode-raw-packet:aloe raw-packet)
+  =/  decoded  (decode-raw-packet:aloe encoded)
   ::
   %+  expect-eq
-    !>  packet
+    !>  raw-packet
     !>  decoded
 ::
 ++  test-interpret-packet-none  ^-  tang
@@ -181,12 +181,12 @@
     ==
   ::
   =/  packet      %packet-foo
-  =/  =meal:aloe  [%carp *message-descriptor:aloe 42 packet]
+  =/  =meal:aloe  [%carp *message-descriptor:aloe 42 `@`packet]
   =/  result1
     %-  encoder
     [now.fix eny.fix meal]
   ::
-  =/  spat  (encode-packet:aloe [our.fix her.fix] %none (jam meal))
+  =/  spat  (encode-raw-packet:aloe [our.fix her.fix] %none (jam meal))
   ::
   %+  expect-eq
     !>  [~ ~[spat]]
@@ -210,8 +210,8 @@
     %-  encoder
     [now.fix eny.fix meal]
   ::
-  =/  actual-gifts=(list gift:encode-meal:aloe)  gifts.result1
-  =/  actual-fragments=(list @)                  fragments.result1
+  =/  actual-gifts=(list gift:encode-meal:aloe)          gifts.result1
+  =/  actual-fragments=(list partial-message-blob:aloe)  parts.result1
   ::
   =/  sit  (sign:as:our-crub.fix (jam meal))
   =/  wrapper-meal=meal:aloe
@@ -219,7 +219,7 @@
   ::
   =/  maj  (jam wrapper-meal)
   ::
-  =/  spat  (encode-packet:aloe [our.fix her.fix] %open maj)
+  =/  spat  (encode-raw-packet:aloe [our.fix her.fix] %open maj)
   ::
   ;:  weld
     %+  expect-eq
@@ -265,8 +265,8 @@
     %-  encoder
     [now=now.fix eny=eny.fix ham=meal]
   ::
-  =/  actual-gifts=(list gift:encode-meal:aloe)  gifts.result1
-  =/  actual-fragments=(list @)                  fragments.result1
+  =/  actual-gifts=(list gift:encode-meal:aloe)          gifts.result1
+  =/  actual-fragments=(list partial-message-blob:aloe)  parts.result1
   ::
   ;:  weld
     %+  expect-eq
@@ -284,7 +284,7 @@
 ::
 ++  test-pump-cull  ^-  tang
   ::
-  =/  live-list=(list live-packet:aloe)
+  =/  live-list=(list live-raw-packet:aloe)
     %-  zing
     ::
     %+  turn  (gulf 1 5)
@@ -293,12 +293,15 @@
     %+  turn  (gulf 42 47)
     |=  fragment-num=@
     ::
-    ^-  live-packet:aloe
+    ^-  live-raw-packet:aloe
     ::
-    =|  =live-packet:aloe
-    live-packet(fragment-index.packet-descriptor [message-num fragment-num])
+    =|  =live-raw-packet:aloe
+    %=    live-raw-packet
+        fragment-index.raw-packet-descriptor
+      [message-num fragment-num]
+    ==
   ::
-  =/  lost-list=(list packet-descriptor:aloe)
+  =/  lost-list=(list raw-packet-descriptor:aloe)
     %-  zing
     ::
     %+  turn  (gulf 3 8)
@@ -307,18 +310,18 @@
     %+  turn  (gulf 52 57)
     |=  fragment-num=@
     ::
-    ^-  packet-descriptor:aloe
+    ^-  raw-packet-descriptor:aloe
     ::
-    =|  =packet-descriptor:aloe
-    packet-descriptor(fragment-index [message-num fragment-num])
+    =|  =raw-packet-descriptor:aloe
+    raw-packet-descriptor(fragment-index [message-num fragment-num])
   ::
   =/  =pump-state:aloe
     :+  ^=  live
-        %-  ~(gas to *(qeu live-packet:aloe))
+        %-  ~(gas to *(qeu live-raw-packet:aloe))
         live-list
       ::
       ^=  lost
-      %-  ~(gas to *(qeu packet-descriptor:aloe))
+      %-  ~(gas to *(qeu raw-packet-descriptor:aloe))
       lost-list
     ::
     (initialize-pump-metrics:pump:aloe now.fix)
@@ -330,24 +333,24 @@
   ::
   ;:  weld
     %+  expect-eq
-      !>  %-  ~(gas to *(qeu live-packet:aloe))
+      !>  %-  ~(gas to *(qeu live-raw-packet:aloe))
           %+  skim  live-list
-          |=  =live-packet:aloe
+          |=  =live-raw-packet:aloe
           ^-  ?
           ::
           ?=  ?(%1 %2 %3 %5)
-          message-seq.fragment-index.packet-descriptor.live-packet
+          message-seq.fragment-index.raw-packet-descriptor.live-raw-packet
       ::
       !>  live.result1
   ::
     %+  expect-eq
-      !>  %-  ~(gas to *(qeu packet-descriptor:aloe))
+      !>  %-  ~(gas to *(qeu raw-packet-descriptor:aloe))
           %+  skim  lost-list
-          |=  =packet-descriptor:aloe
+          |=  =raw-packet-descriptor:aloe
           ^-  ?
           ::
           ?=  ?(%3 %5 %6 %7 %8)
-          message-seq.fragment-index.packet-descriptor
+          message-seq.fragment-index.raw-packet-descriptor
       ::
       !>  lost.result1
   ==
@@ -361,17 +364,17 @@
   ::
   =/  ctx=pump-context:pump:aloe  [~ pump-state]
   ::
-  =/  packets=(list packet-descriptor:aloe)
+  =/  packets=(list raw-packet-descriptor:aloe)
     %+  turn  (gulf 1 2)
     |=  n=@
-    ^-  packet-descriptor:aloe
+    ^-  raw-packet-descriptor:aloe
     ::
-    =|  =packet-descriptor:aloe
-    %_  packet-descriptor
-      virgin          %.n
-      fragment-index  [message-seq=42 fragment-num=n]
-      packet-hash     `@uvH`(shaf n n)
-      payload         n
+    =|  =raw-packet-descriptor:aloe
+    %_  raw-packet-descriptor
+      virgin           %.n
+      fragment-index   [message-seq=42 fragment-num=n]
+      raw-packet-hash  `@uvH`(shaf n n)
+      raw-packet-blob  n
     ==
   ::
   =/  result1=pump-context:pump:aloe
@@ -386,8 +389,11 @@
       !>  -.metrics.state.result1
   ::
     %+  expect-eq
-      !>  :~  [%send [packet-hash fragment-index payload]:(snag 0 packets)]
-              [%send [packet-hash fragment-index payload]:(snag 1 packets)]
+      !>  :~  :-  %send
+              [raw-packet-hash fragment-index raw-packet-blob]:(snag 0 packets)
+            ::
+              :-  %send
+              [raw-packet-hash fragment-index raw-packet-blob]:(snag 1 packets)
           ==
       !>  gifts.result1
   ==
@@ -425,7 +431,7 @@
   =/  manager2
     %-  work:manager1
     ^-  task:manager1
-    [%back packet-hash=0v7.o5rlu.ms7sv.kmf23.o2r5g.je1fl error=~ lag=`@dr`0]
+    [%back raw-packet-hash=0v7.o5rlu.ms7sv.kmf23.o2r5g.je1fl error=~ lag=`@dr`0]
   ::
   =/  result2
     abet:manager2
@@ -504,7 +510,7 @@
   =/  manager3
     %-  work:manager2
     ^-  task:manager2
-    [%back packet-hash=0v6.e5p8r.rb8jv.qs7r4.d2d8i.ajbuk error=~ lag=`@dr`0]
+    [%back raw-packet-hash=0v6.e5p8r.rb8jv.qs7r4.d2d8i.ajbuk error=~ lag=`@dr`0]
   ~&  :-  %manager3
       (window-slots:pump:aloe metrics.pump-state.outbound-state.manager3)
   ::

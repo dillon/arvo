@@ -20,19 +20,19 @@
   +$  task
     $%  ::  %pass-message: encode and send :message to another :ship
         ::
-        [%pass-message =ship =path message=*]
+        [%pass-message =ship =path payload=*]
         ::  %forward-message: ask :ship to relay :message to another ship
         ::
         ::    This sends :ship a message that has been wrapped in an envelope
         ::    containing the address of the intended recipient.
         ::
-        [%forward-message =ship =path message=*]
+        [%forward-message =ship =path payload=*]
         ::  %hear: receive a packet from unix
         ::
-        [%hear =lane packet=@]
+        [%hear =lane =raw-packet-blob]
         ::  %hole: receive notification from unix that packet crashed
         ::
-        [%hole =lane packet=@]
+        [%hole =lane =raw-packet-blob]
         ::  %born: urbit process restarted
         ::
         [%born ~]
@@ -63,13 +63,13 @@
         ::    another ship) in response to a message the vane
         ::    asked us to send.
         ::
-        [%give-message message=*]
+        [%give-message payload=*]
         ::  %send: tell unix to send a packet to another ship
         ::
         ::    Each %mess +task will cause one or more %send gifts to be
         ::    emitted to Unix, one per message fragment.
         ::
-        [%send =lane packet=@]
+        [%send =lane =raw-packet-blob]
         ::  %turf: tell unix which domains to bind
         ::
         ::    Sometimes Jael learns new domains we should be using
@@ -96,22 +96,22 @@
               [%rest date=@da]
       ==  ==
       $:  %c
-          $%  ::  %pass-message: encode and send :message to :ship
+          $%  ::  %pass-message: encode and send :payload to :ship
               ::
-              [%pass-message =ship =path message=*]
+              [%pass-message =ship =path payload=*]
       ==  ==
       $:  %d
           $%  [%flog =flog:dill]
       ==  ==
       $:  %g
-          $%  ::  %pass-message: encode and send :message to :ship
+          $%  ::  %pass-message: encode and send :payload to :ship
               ::
-              [%pass-message =ship =path message=*]
+              [%pass-message =ship =path payload=*]
       ==  ==
       $:  %j
-          $%  ::  %pass-message: encode and send :message to :ship
+          $%  ::  %pass-message: encode and send :payload to :ship
               ::
-              [%pass-message =ship =path message=*]
+              [%pass-message =ship =path payload=*]
               ::  %meet: tell jael we've neighbored with :ship at :life
               ::
               [%meet =ship =life]
@@ -143,7 +143,7 @@
               ::    initiated the flow and we're streaming down subscription
               ::    data.
               ::
-              [%give-message message=*]
+              [%give-message payload=*]
               ::  %ack-message: acknowledge a request (forward message)
               ::
               ::    If :error is non-null, this is a nack (negative
@@ -160,7 +160,7 @@
               ::    initiated the flow and we're streaming down subscription
               ::    data.
               ::
-              [%give-message message=*]
+              [%give-message payload=*]
               ::  %ack-message: acknowledge a request (forward message)
               ::
               ::    If :error is non-null, this is a nack (negative
@@ -177,7 +177,7 @@
               ::    initiated the flow and we're streaming down subscription
               ::    data.
               ::
-              [%give-message message=*]
+              [%give-message payload=*]
               ::  %ack-message: acknowledge a request (forward message)
               ::
               ::    If :error is non-null, this is a nack (negative
@@ -225,20 +225,20 @@
       by-bone=(map bone duct)
   ==
 +$  blocked-actions
-  $:  inbound-packets=(list [=lane packet=@])
-      outbound-messages=(list [=duct route=path message=*])
+  $:  inbound-packets=(list [=lane =raw-packet-blob])
+      outbound-messages=(list [=duct route=path payload=*])
   ==
 +$  inbound-state
   $:  last-acked=message-seq
       partial-messages=(map message-seq partial-message)
-      awaiting-application=(unit [=message-seq =packet-hash =lane])
+      awaiting-application=(unit [=message-seq =raw-packet-hash =lane])
       nacks=(map message-seq error)
   ==
 +$  partial-message
   $:  =encoding
-      num-received=@ud
-      next-fragment=@ud
-      fragments=(map @ud @)
+      num-received=fragment-num
+      next-fragment=fragment-num
+      fragments=(map fragment-num partial-message-blob)
   ==
 ::  +outbound-state: all data relevant to sending messages to a peer
 ::
@@ -264,7 +264,7 @@
       remote-route=path
       total-fragments=fragment-num
       acked-fragments=fragment-num
-      unsent-packets=(list packet-descriptor)
+      unsent-packets=(list raw-packet-descriptor)
   ==
 ::  +pump-state: all data relevant to a per-ship |packet-pump
 ::
@@ -272,28 +272,28 @@
 ::    we actually treat them as bespoke priority queues.
 ::
 +$  pump-state
-  $:  live=(qeu live-packet)
-      lost=(qeu packet-descriptor)
+  $:  live=(qeu live-raw-packet)
+      lost=(qeu raw-packet-descriptor)
       metrics=pump-metrics
   ==
-::  +live-packet: data needed to track a packet in flight
+::  +live-raw-packet: data needed to track a raw packet in flight
 ::
-::    Prepends :expiration-date and :sent-date to a +packet-descriptor.
+::    Prepends :expiration-date and :sent-date to a +raw-packet-descriptor.
 ::
-+$  live-packet
++$  live-raw-packet
   %-  expiring
   $:  sent-date=@da
-      =packet-descriptor
+      =raw-packet-descriptor
   ==
-::  +packet-descriptor: immutable data for an enqueued, possibly sent, packet
+::  +raw-packet-descriptor: immutable data for a possibly sent raw packet
 ::
 ::    TODO: what is the virgin field?
 ::
-+$  packet-descriptor
++$  raw-packet-descriptor
   $:  virgin=?
       =fragment-index
-      =packet-hash
-      payload=@
+      =raw-packet-hash
+      =raw-packet-blob
   ==
 ::  +pump-metrics: congestion control information
 ::
@@ -308,6 +308,28 @@
           last-sent=@da
           last-deadline=@da
   ==  ==
+::
+::  ames.c => raw-packet-blob
+::  raw-packet-blob=@ -> `raw-packet`[header packet-blob=@]
+::  packet-blob=@ -> `packet`[fragment-index partial-message-blob=@]
+::  (cat 13 partial-message-blob ...) = message-blob
+::  message-blob=@ -> `message`[%bond !! payload=*]
+::  payload => other vane
+::
+::  XX move crypto to packet-blob -> packet decoder
+::
++$  packets  (lest packet)
++$  packet
+    $:  =message-descriptor
+        =fragment-num
+        =partial-message-blob
+    ==
+::
++$  message
+  $%  [%back !!]
+      [%bond !!]
+      [%fore !!]
+  ==
 ::  +meal: packet payload
 ::
 +$  meal
@@ -318,28 +340,28 @@
       ::    error: non-null iff nack (negative acknowledgment)
       ::    lag: computation time, for use in congestion control
       ::
-      [%back =bone =packet-hash error=(unit error) lag=@dr]
+      [%back =bone =raw-packet-hash error=(unit error) lag=@dr]
       ::  %bond: full message
       ::
       ::    message-id: pair of flow id and message sequence number
       ::    remote-route: intended recipient module on receiving ship
-      ::    message: noun payload
+      ::    payload: noun payload
       ::
-      [%bond =message-id remote-route=path message=*]
+      [%bond =message-id remote-route=path payload=*]
       ::  %carp: message fragment
       ::
       ::    message-descriptor: message id and fragment count
       ::    fragment-num: which fragment is being sent
-      ::    message-fragment: one slice of a message's bytestream
+      ::    partial-message-blob: one slice of a message's bytestream
       ::
-      [%carp =message-descriptor fragment-num=@ message-fragment=@]
+      [%carp =message-descriptor =fragment-num =partial-message-blob]
       ::  %fore: forwarded packet
       ::
       ::    ship: destination ship, to be forwarded to
       ::    lane: IP route, or null if unknown
       ::    payload: the wrapped packet, to be sent to :ship
       ::
-      [%fore =ship lane=(unit lane) payload=@]
+      [%fore =ship lane=(unit lane) raw-packet-blob=@]
   ==
 ::  +pki-context: context for messaging between :our and peer
 ::
@@ -360,6 +382,8 @@
 ::  +deed: identity attestation, typically signed by sponsor
 ::
 +$  deed  (attested [=life =public-key =signature])
+::
+::  XX names
 ::
 ++  packet-format
   |%
@@ -384,21 +408,27 @@
       [%ix (expiring [port=@ud ipv4=@if])]
   ==
 ::
-+$  lois  [? lane=*]
-+$  symmetric-key       @uvI
-+$  public-key          pass
-+$  private-key         ring
-+$  key-hash            @uvH
-+$  signature           @
-+$  message-descriptor  [=message-id encoding-num=@ num-fragments=@]
-+$  message-id          [=bone =message-seq]
-+$  message-seq         @ud
-+$  fragment-num        @ud
-+$  fragment-index      [=message-seq =fragment-num]
-+$  packet-hash         @uvH
-+$  error               [tag=@tas =tang]
-+$  packet              [[to=ship from=ship] =encoding payload=@]
-+$  encoding            ?(%none %open %fast %full)
+::  Aspirational
+::
++$  lois                  [direct=? lane=*]
++$  symmetric-key         @uvI
++$  public-key            pass
++$  private-key           ring
++$  key-hash              @uvH
++$  signature             @
++$  message-descriptor    [=message-id encoding-num=@ num-fragments=@]
++$  message-id            [=bone =message-seq]
++$  message-seq           @ud
++$  fragment-num          @ud
++$  fragment-index        [=message-seq =fragment-num]
++$  raw-packet-hash       @uvH
++$  error                 [tag=@tas =tang]
++$  raw-packet            [[to=ship from=ship] =encoding packet-blob=@]
++$  raw-packet-blob       @uvO
++$  packet-blob           @uvO
++$  message-blob          @uvO
++$  partial-message-blob  @uvO
++$  encoding              ?(%none %open %fast %full)
 ::  +expiring: a value that expires at the specified date
 ::
 +*  expiring  [value]  [expiration-date=@da value]
@@ -518,21 +548,21 @@
 ++  main
   =>  |%
       +$  gift
-        $%  [%east =duct =ship route=path message=*]
-            [%home =lane packet=@]
+        $%  [%east =duct =ship route=path payload=*]
+            [%home =lane =raw-packet-blob]
             [%symmetric-key =ship (expiring =symmetric-key)]
             [%meet =ship =life =public-key]
             [%rest =duct error=(unit error)]
-            [%send =lane packet=@]
+            [%send =lane =raw-packet-blob]
             [%veil =ship]
-            [%west =ship =bone route=path message=*]
+            [%west =ship =bone route=path payload=*]
         ==
       +$  task
         $%  [%clue =ship =pki-info]
             [%done =ship =bone error=(unit error)]
-            [%hear =lane packet=@]
-            [%mess =ship =duct route=path message=*]
-            [%rend =ship =bone route=path message=*]
+            [%hear =lane =raw-packet-blob]
+            [%mess =ship =duct route=path payload=*]
+            [%rend =ship =bone route=path payload=*]
             [%wake error=(unit tang)]
         ==
       --
@@ -556,9 +586,9 @@
     ?-  -.task
       %clue  (on-clue [ship pki-info]:task)
       %done  (on-done [ship bone error]:task)
-      %hear  (on-hear [lane packet]:task)
-      %mess  (on-mess [ship duct route message]:task)
-      %rend  (on-rend [ship bone route message]:task)
+      %hear  (on-hear [lane raw-packet-blob]:task)
+      %mess  (on-mess [ship duct route payload]:task)
+      %rend  (on-rend [ship bone route payload]:task)
       %wake  (on-wake error.task)
     ==
   ::  +on-clue: peer update TODO docs and comments
@@ -605,19 +635,19 @@
     abet:(done:(per-peer ship) bone error)
   ::
   ++  on-hear
-    |=  [=lane raw-packet=@]
+    |=  [=lane =raw-packet-blob]
     ^+  main-core
     ::
-    =/  decoded=packet  (decode-packet raw-packet)
+    =/  decoded=raw-packet  (decode-raw-packet raw-packet-blob)
     ?>  =(our to.decoded)
     =/  her=ship  from.decoded
     ::
     =/  ship-state  (~(get by peers.ames-state) her)
     ?:  ?=([~ %peer *] ship-state)
       =/  peer-core  (per-peer-with-state her peer-state.u.ship-state)
-      =/  =packet-hash  (shaf %flap raw-packet)
+      =/  =raw-packet-hash  (shaf %flap raw-packet-blob)
       ::
-      abet:(hear:peer-core lane packet-hash [encoding payload]:decoded)
+      abet:(hear:peer-core lane raw-packet-hash [encoding packet-blob]:decoded)
     ::
     =/  =blocked-actions
       ?~  ship-state
@@ -625,7 +655,7 @@
       blocked-actions.u.ship-state
     ::
     =.  inbound-packets.blocked-actions
-      [[lane raw-packet] inbound-packets.blocked-actions]
+      [[lane raw-packet-blob] inbound-packets.blocked-actions]
     ::
     =.  main-core  (give %veil her)
     =.  peers.ames-state
@@ -634,7 +664,7 @@
     main-core
   ::
   ++  on-mess
-    |=  [her=ship =duct route=path message=*]
+    |=  [her=ship =duct route=path payload=*]
     ^+  main-core
     ::
     =/  ship-state  (~(get by peers.ames-state) her)
@@ -642,7 +672,7 @@
       =/  peer-core  (per-peer-with-state her peer-state.u.ship-state)
       =^  bone  peer-core  (register-duct:peer-core duct)
       ::
-      abet:(mess:peer-core bone route message)
+      abet:(mess:peer-core bone route payload)
     ::
     =/  =blocked-actions
       ?~  ship-state
@@ -650,7 +680,7 @@
       blocked-actions.u.ship-state
     ::
     =.  outbound-messages.blocked-actions
-      [[duct route message] outbound-messages.blocked-actions]
+      [[duct route payload] outbound-messages.blocked-actions]
     ::
     ::  XX if her is comet or moon, send %open
     ::
@@ -661,10 +691,10 @@
     main-core
   ::
   ++  on-rend
-    |=  [=ship =bone route=path message=*]
+    |=  [=ship =bone route=path payload=*]
     ^+  main-core
     ::
-    abet:(mess:(per-peer ship) bone route message)
+    abet:(mess:(per-peer ship) bone route payload)
   ::  TODO refactor
   ::
   ++  on-wake
@@ -741,14 +771,14 @@
       ?-    -.gift
           %fore
         ?:  =(our ship.gift)
-          (give %home [lane packet]:gift)
-        (send(her ship.gift) [`lane packet]:gift)
+          (give %home [lane raw-packet-blob]:gift)
+        (send(her ship.gift) [`lane raw-packet-blob]:gift)
       ::
-          %have  (have [bone route message]:gift)
+          %have  (have [bone route payload]:gift)
           %meet  (give gift)
-          %rack  (to-task [bone %back packet-hash error ~s0]:gift)
+          %rack  (to-task [bone %back raw-packet-hash error ~s0]:gift)
           %rout  peer-core(lane.peer-state `lane.gift)
-          %sack  (send-ack [bone packet-hash error]:gift)
+          %sack  (send-ack [bone raw-packet-hash error]:gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ::
       ==
@@ -782,7 +812,7 @@
         =/  =duct  (~(got by by-bone.bone-manager.peer-state) bone.gift)
         (give %rest duct error.gift)
       ::
-          %send  (send ~ payload.gift)
+          %send  (send ~ raw-packet-blob.gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
     ::
@@ -794,7 +824,7 @@
     ::  +have: receive message; relay to client vane by bone parity
     ::
     ++  have
-      |=  [=bone route=path message=*]
+      |=  [=bone route=path payload=*]
       ^+  peer-core
       ::  even bone means backward flow, like a subscription update; always ack
       ::
@@ -802,16 +832,16 @@
         =/  =duct  (~(got by by-bone.bone-manager.peer-state) bone)
         ::
         =.  peer-core  (in-task %done bone ~)
-        (give %east duct her route message)
+        (give %east duct her route payload)
       ::  odd bone, forward flow; wait for client vane to ack the message
       ::
-      (give %west her bone route message)
+      (give %west her bone route payload)
     ::
     ++  hear
-      |=  [=lane =packet-hash =encoding buffer=@]
+      |=  [=lane =raw-packet-hash =encoding =packet-blob]
       ^+  peer-core
       ::
-      (in-task %hear lane packet-hash encoding buffer)
+      (in-task %hear lane raw-packet-hash encoding packet-blob)
     ::
     ++  in-task
       |=  =task:message-decoder
@@ -832,10 +862,10 @@
       [now eny bone outbound-state]
     ::
     ++  mess
-      |=  [=bone route=path message=*]
+      |=  [=bone route=path payload=*]
       ^+  peer-core
       ::
-      (to-task bone %mess route message)
+      (to-task bone %mess route payload)
     ::  +register-duct: add map between :duct and :next bone; increment :next
     ::
     ++  register-duct
@@ -859,7 +889,7 @@
     ::  +send-ack: send acknowledgment
     ::
     ++  send-ack
-      |=  [=bone =packet-hash error=(unit error)]
+      |=  [=bone =raw-packet-hash error=(unit error)]
       ^+  peer-core
       ::
       =+  ^-  [gifts=(list gift:encode-meal) fragments=(list @)]
@@ -874,7 +904,7 @@
               ==
           :+  now  eny
           ^-  meal
-          [%back (mix bone 1) packet-hash error ~s0]
+          [%back (mix bone 1) raw-packet-hash error ~s0]
       ::
       =.  peer-core  (handle-encode-meal-gifts gifts)
       ::
@@ -882,10 +912,10 @@
       ?~  fragments  peer-core
       =.  peer-core  (send ~ i.fragments)
       $(fragments t.fragments)
-    ::  +send: send packet; TODO document :lane arg
+    ::  +send: send raw packet; TODO document :lane arg
     ::
     ++  send
-      |=  [lane=(unit lane) packet=@]
+      |=  [lane=(unit lane) =raw-packet-blob]
       ^+  peer-core
       ::
       ?<  =(our her)
@@ -918,13 +948,15 @@
       ::  packet may exceed 8192 bits, but it's unlikely
       ::  to blow the MTU (IP MTU == 1500).
       ::
-      =?  packet  |(!=(her i.her-sponsors) !=(~ lane))
+      =?  raw-packet-blob  |(!=(her i.her-sponsors) !=(~ lane))
         ::
-        %-  encode-packet
-        ^-  ^packet
-        [[our i.her-sponsors] %none (jam `meal`[%fore her lane packet])]
+        %-  encode-raw-packet
+        ^-  raw-packet
+        :+  [our i.her-sponsors]
+          %none
+        (jam `meal`[%fore her lane raw-packet-blob])
       ::
-      =.  peer-core  (give %send u.new-lane packet)
+      =.  peer-core  (give %send u.new-lane raw-packet-blob)
       ::  stop if we have an %if (direct) address;
       ::  continue if we only have %ix (forwarded).
       ::
@@ -990,16 +1022,16 @@
             [%mack =bone error=(unit error)]
             ::  %send: release a packet
             ::
-            [%send =packet-hash payload=@]
+            [%send =raw-packet-hash =raw-packet-blob]
         ==
       ::
       +$  task
         $%  ::  %back: process raw packet acknowledgment
             ::
-            [%back =packet-hash error=(unit error) lag=@dr]
+            [%back =raw-packet-hash error=(unit error) lag=@dr]
             ::  %mess: send a message
             ::
-            [%mess remote-route=path message=*]
+            [%mess remote-route=path payload=*]
             ::  %wake: handle an elapsed timer
             ::
             [%wake error=(unit tang)]
@@ -1035,8 +1067,8 @@
     ^+  manager-core
     ::
     ?-  -.task
-      %back  (handle-packet-ack [packet-hash error lag]:task)
-      %mess  (handle-message-request [remote-route message]:task)
+      %back  (handle-packet-ack [raw-packet-hash error lag]:task)
+      %mess  (handle-message-request [remote-route payload]:task)
       %wake  (wake error.task)
     ==
   ::  +drain-pump-gifts: extract and apply pump effects, clearing pump
@@ -1057,16 +1089,16 @@
     ::
     ?-  -.gift
       %good  (apply-packet-ack [fragment-index error]:gift)
-      %send  (give [%send packet-hash payload]:gift)
+      %send  (give [%send raw-packet-hash raw-packet-blob]:gift)
     ==
   ::  +handle-packet-ack: hear an ack; pass it to the pump
   ::
   ++  handle-packet-ack
-    |=  [=packet-hash error=(unit error) lag=@dr]
+    |=  [=raw-packet-hash error=(unit error) lag=@dr]
     ^+  manager-core
     ::
     =^  pump-gifts  pump-state.outbound-state
-      (work:pump pump-ctx now %back packet-hash error lag)
+      (work:pump pump-ctx now %back raw-packet-hash error lag)
     ::
     (drain-pump-gifts pump-gifts)
   ::  +feed-packets-to-pump: feed the pump with as many packets as it can accept
@@ -1084,7 +1116,7 @@
   ::  +collect-packets: collect packets to be fed to the pump
   ::
   ++  collect-packets
-    =|  packets=(list packet-descriptor)
+    =|  packets=(list raw-packet-descriptor)
     ^+  [packets manager-core]
     ::
     =/  index  till-tick.outbound-state
@@ -1109,23 +1141,23 @@
   ::  +pop-unsent-packets: unqueue up to :window-slots unsent packets to pump
   ::
   ++  pop-unsent-packets
-    |=  [index=@ud window-slots=@ud packets=(list packet-descriptor)]
+    |=  [index=@ud window-slots=@ud packets=(list raw-packet-descriptor)]
     ^+  [[remaining-slots=window-slots packets=packets] manager-core]
     ::
-    =/  message=live-message  (~(got by live-messages.outbound-state) index)
+    =/  =live-message  (~(got by live-messages.outbound-state) index)
     ::
     |-  ^+  [[window-slots packets] manager-core]
     ::  TODO document this condition
     ::
-    ?:  |(=(0 window-slots) ?=(~ unsent-packets.message))
+    ?:  |(=(0 window-slots) ?=(~ unsent-packets.live-message))
       =.  live-messages.outbound-state
-        (~(put by live-messages.outbound-state) index message)
+        (~(put by live-messages.outbound-state) index live-message)
       [[window-slots packets] manager-core]
     ::
     %_  $
-      window-slots            (dec window-slots)
-      packets                 [i.unsent-packets.message packets]
-      unsent-packets.message  t.unsent-packets.message
+      window-slots                 (dec window-slots)
+      packets                      [i.unsent-packets.live-message packets]
+      unsent-packets.live-message  t.unsent-packets.live-message
     ==
   ::  +apply-packet-ack: possibly acks or nacks whole message
   ::
@@ -1133,12 +1165,12 @@
     |=  [=fragment-index error=(unit error)]
     ^+  manager-core
     ::
-    =/  message=(unit live-message)
+    =/  live-message=(unit live-message)
       (~(get by live-messages.outbound-state) message-seq.fragment-index)
-    ::  if we're already done with :message, no-op
+    ::  if we're already done with :live-message, no-op
     ::
-    ?~  message                   manager-core
-    ?~  unsent-packets.u.message  manager-core
+    ?~  live-message                   manager-core
+    ?~  unsent-packets.u.live-message  manager-core
     ::  if packet says message failed, save this nack and clear the message
     ::
     ?^  error
@@ -1148,7 +1180,7 @@
       ::
       =.  live-messages.outbound-state
         %+  ~(put by live-messages.outbound-state)  message-seq
-        u.message(unsent-packets ~, error `error)
+        u.live-message(unsent-packets ~, error `error)
       ::  remove this message's packets from our packet pump queues
       ::
       =^  pump-gifts  pump-state.outbound-state
@@ -1157,28 +1189,28 @@
       (drain-pump-gifts pump-gifts)
     ::  sanity check: make sure we haven't acked more packets than exist
     ::
-    ?>  (lth [acked-fragments total-fragments]:u.message)
+    ?>  (lth [acked-fragments total-fragments]:u.live-message)
     ::  apply the ack on this packet to our ack counter for this message
     ::
-    =.  acked-fragments.u.message  +(acked-fragments.u.message)
+    =.  acked-fragments.u.live-message  +(acked-fragments.u.live-message)
     ::  if final packet, we know no error ([~ ~]); otherwise, unknown (~)
     ::
-    =.  error.u.message
-      ?:  =(acked-fragments total-fragments):u.message
+    =.  error.u.live-message
+      ?:  =(acked-fragments total-fragments):u.live-message
         [~ ~]
       ~
-    ::  update :live-messages with modified :message
+    ::  update :live-messages with modified :live-message
     ::
     =.  live-messages.outbound-state
       %+  ~(put by live-messages.outbound-state)
         message-seq.fragment-index
-      u.message
+      u.live-message
     ::
     manager-core
   ::  +handle-message-request: break a message into packets, marking as unsent
   ::
   ++  handle-message-request
-    |=  [remote-route=path message=*]
+    |=  [remote-route=path payload=*]
     ^+  manager-core
     ::  encode the message as packets, flipping bone parity
     ::
@@ -1186,7 +1218,7 @@
         ::
         %-  (encode-meal pki-context)
         :+  now  eny
-        [%bond [(mix bone 1) next-tick.outbound-state] remote-route message]
+        [%bond [(mix bone 1) next-tick.outbound-state] remote-route payload]
     ::  apply :meal-gifts
     ::
     =.  gifts  (weld (flop meal-gifts) gifts)
@@ -1205,12 +1237,12 @@
           total-fragments=(lent fragments)
           acked-fragments=0
           ::
-          ^=  unsent-packets  ^-  (list packet-descriptor)
+          ^=  unsent-packets  ^-  (list raw-packet-descriptor)
           =/  index  0
-          |-  ^-  (list packet-descriptor)
+          |-  ^-  (list raw-packet-descriptor)
           ?~  fragments  ~
           ::
-          :-  ^-  packet-descriptor
+          :-  ^-  raw-packet-descriptor
               ::
               :^    virgin=&
                   [index next-tick.outbound-state]
@@ -1252,8 +1284,8 @@
       ::  +gift: packet pump effect; either %good logical ack, or %send packet
       ::
       +$  gift
-        $%  [%good =packet-hash =fragment-index rtt=@dr error=(unit error)]
-            [%send =packet-hash =fragment-index payload=@]
+        $%  [%good =raw-packet-hash =fragment-index rtt=@dr error=(unit error)]
+            [%send =raw-packet-hash =fragment-index =raw-packet-blob]
             ::  TODO [%wait @da] to set timer
         ==
       ::  +task: request to the packet pump
@@ -1261,17 +1293,17 @@
       +$  task
         $%  ::  %back: raw acknowledgment
             ::
-            ::    packet-hash: the hash of the packet we're acknowledging
+            ::    raw-packet-hash: the hash of the packet we're acknowledging
             ::    error: non-null if negative acknowledgment (nack)
             ::    lag: self-reported computation lag, to be factored out of RTT
             ::
-            [%back =packet-hash error=(unit error) lag=@dr]
+            [%back =raw-packet-hash error=(unit error) lag=@dr]
             ::  %cull: cancel message
             ::
             [%cull =message-seq]
             ::  %pack: enqueue packets for sending
             ::
-            [%pack packets=(list packet-descriptor)]
+            [%pack packets=(list raw-packet-descriptor)]
             ::  %wake: timer expired
             ::
             ::    TODO: revisit after timer refactor
@@ -1294,7 +1326,7 @@
     ^-  pump-context
     ::
     ?-  -.task
-      %back  (back ctx now [packet-hash error lag]:task)
+      %back  (back ctx now [raw-packet-hash error lag]:task)
       %cull  [gifts.ctx (cull state.ctx message-seq.task)]
       %pack  (send-packets ctx now packets.task)
       %wake  [gifts.ctx (wake state.ctx now error.task)]
@@ -1314,7 +1346,7 @@
     |=  state=pump-state
     ^-  (unit @da)
     ::
-    =/  next=(unit live-packet)  ~(top to live.state)
+    =/  next=(unit live-raw-packet)  ~(top to live.state)
     ?~  next
       ~
     `expiration-date.u.next
@@ -1348,7 +1380,7 @@
   ::    TODO: test to verify queue invariants
   ::
   ++  back
-    |=  [ctx=pump-context now=@da =packet-hash error=(unit error) lag=@dr]
+    |=  [ctx=pump-context now=@da =raw-packet-hash error=(unit error) lag=@dr]
     ^-  pump-context
     ::  post-process by adjusting timing information and losing packets
     ::
@@ -1360,15 +1392,15 @@
           ?~  ack  ~s0
           (sub-safe (sub now sent-date.u.ack) lag)
         ::
-        (done ctx ack packet-hash error rtt)
+        (done ctx ack raw-packet-hash error rtt)
     ::  liv: iteratee starting as :live.state.ctx
     ::
-    =/  liv=(qeu live-packet)  live.state.ctx
+    =/  liv=(qeu live-raw-packet)  live.state.ctx
     ::  main loop
     ::
-    |-  ^-  $:  ack=(unit live-packet)
-                ded=(list live-packet)
-                lov=(qeu live-packet)
+    |-  ^-  $:  ack=(unit live-raw-packet)
+                ded=(list live-raw-packet)
+                lov=(qeu live-raw-packet)
             ==
     ?~  liv  [~ ~ ~]
     ::  ryt: result of searching the right (front) side of the queue
@@ -1382,17 +1414,17 @@
     ::    Uses head recursion to produce :ack, :ded, and :lov.
     ::
     =+  ^-  $:  top=?
-                ack=(unit live-packet)
-                ded=(list live-packet)
-                lov=(qeu live-packet)
+                ack=(unit live-raw-packet)
+                ded=(list live-raw-packet)
+                lov=(qeu live-raw-packet)
             ==
-        ?:  =(packet-hash packet-hash.packet-descriptor.n.liv)
+        ?:  =(raw-packet-hash raw-packet-hash.raw-packet-descriptor.n.liv)
           [| `n.liv ~ l.liv]
         [& $(liv l.liv)]
     ::
     ?~  ack  [~ ~ liv]
     ::
-    =*  virgin  virgin.packet-descriptor.u.ack
+    =*  virgin  virgin.raw-packet-descriptor.u.ack
     ::
     =?  ded  top     [n.liv ded]
     =?  ded  virgin  (weld ~(tap to r.liv) ded)
@@ -1420,9 +1452,9 @@
       =/  vil  liv(l $(liv l.liv), r $(liv r.liv))
       ::  if the head of the tree is from the message to be deleted, cull it
       ::
-      ?.  =(message-seq message-seq.fragment-index.packet-descriptor.n.liv)
+      ?.  =(message-seq message-seq.fragment-index.raw-packet-descriptor.n.liv)
         vil
-      ~(nip to `(qeu live-packet)`vil)
+      ~(nip to `(qeu live-raw-packet)`vil)
     ::
     =.  lost.state
       =/  lop  lost.state
@@ -1435,28 +1467,28 @@
       ::
       ?.  =(message-seq message-seq.fragment-index.n.lop)
         pol
-      ~(nip to `(qeu packet-descriptor)`pol)
+      ~(nip to `(qeu raw-packet-descriptor)`pol)
     ::
     state
   ::  +done: process a cooked ack; may emit a %good ack gift
   ::
   ++  done
     |=  $:  ctx=pump-context
-            live-packet=(unit live-packet)
-            =packet-hash
+            live-raw-packet=(unit live-raw-packet)
+            =raw-packet-hash
             error=(unit error)
             rtt=@dr
         ==
     ^-  pump-context
-    ?~  live-packet  ctx
+    ?~  live-raw-packet  ctx
     ::
-    =*  fragment-index  fragment-index.packet-descriptor.u.live-packet
-    =.  ctx  (give ctx [%good packet-hash fragment-index rtt error])
+    =*  fragment-index  fragment-index.raw-packet-descriptor.u.live-raw-packet
+    =.  ctx  (give ctx [%good raw-packet-hash fragment-index rtt error])
     ::
     =.  window-length.metrics.state.ctx  (dec window-length.metrics.state.ctx)
     ::
     ctx
-  ::  +enqueue-lost-packet: ordered enqueue into :lost.pump-state
+  ::  +enqueue-lost-raw-packet: ordered enqueue into :lost.pump-state
   ::
   ::    The :lost queue isn't really a queue in case of
   ::    resent packets; packets from older messages
@@ -1467,13 +1499,13 @@
   ::    This queue is ordered by:
   ::      - message sequence number
   ::      - fragment number within the message
-  ::      - packet-hash
+  ::      - raw-packet-hash
   ::
   ::    TODO: why do we need the packet-hash tiebreaker?
   ::    TODO: write queue order function
   ::
-  ++  enqueue-lost-packet
-    |=  [state=pump-state pac=packet-descriptor]
+  ++  enqueue-lost-raw-packet
+    |=  [state=pump-state pac=raw-packet-descriptor]
     ^+  lost.state
     ::
     =/  lop  lost.state
@@ -1483,14 +1515,14 @@
     ::
     ?:  ?|  (older fragment-index.pac fragment-index.n.lop)
             ?&  =(fragment-index.pac fragment-index.n.lop)
-                (lth packet-hash.pac packet-hash.n.lop)
+                (lth raw-packet-hash.pac raw-packet-hash.n.lop)
         ==  ==
       lop(r $(lop r.lop))
     lop(l $(lop l.lop))
-  ::  +fire-packet: emit a %send gift for a packet and do bookkeeping
+  ::  +fire-raw-packet: emit a %send gift for a packet and do bookkeeping
   ::
-  ++  fire-packet
-    |=  [ctx=pump-context now=@da pac=packet-descriptor]
+  ++  fire-raw-packet
+    |=  [ctx=pump-context now=@da pac=raw-packet-descriptor]
     ^-  pump-context
     ::  metrics: read-only accessor for convenience
     ::
@@ -1518,21 +1550,21 @@
     ::
     =.  live.state.ctx
       %-  ~(put to live.state.ctx)
-      ^-  live-packet
+      ^-  live-raw-packet
       :+  last-deadline.metrics.state.ctx
         last-sent.metrics.state.ctx
       pac
     ::  emit the packet
     ::
-    (give ctx [%send packet-hash fragment-index payload]:pac)
+    (give ctx [%send raw-packet-hash fragment-index raw-packet-blob]:pac)
   ::  +lose: abandon packets
   ::
   ++  lose
-    |=  [state=pump-state packets=(list live-packet)]
+    |=  [state=pump-state packets=(list live-raw-packet)]
     ^-  pump-state
     ?~  packets  state
     ::
-    =.  lost.state  (enqueue-lost-packet state packet-descriptor.i.packets)
+    =.  lost.state  (enqueue-lost-raw-packet state raw-packet-descriptor.i.packets)
     ::
     %=  $
       packets                      t.packets
@@ -1542,7 +1574,7 @@
   ::  +send-packets: resends lost packets then sends new until window closes
   ::
   ++  send-packets
-    |=  [ctx=pump-context now=@da packets=(list packet-descriptor)]
+    |=  [ctx=pump-context now=@da packets=(list raw-packet-descriptor)]
     ^-  pump-context
     =-  ~&  %send-packets^requested=(lent packets)^sent=(lent gifts.-)  -
     ::  make sure we weren't asked to send more packets than allowed
@@ -1556,14 +1588,14 @@
     ::  first, resend as many lost packets from our backlog as possible
     ::
     ?.  =(~ lost.state.ctx)
-      =^  lost-packet  lost.state.ctx  ~(get to lost.state.ctx)
+      =^  lost-raw-packet  lost.state.ctx  ~(get to lost.state.ctx)
       =.  retry-length.metrics.state.ctx  (dec retry-length.metrics.state.ctx)
       ::
-      =.  ctx  (fire-packet ctx now lost-packet)
+      =.  ctx  (fire-raw-packet ctx now lost-raw-packet)
       $(slots (dec slots))
     ::  now that we've finished the backlog, send the requested packets
     ::
-    =.  ctx  (fire-packet ctx now i.packets)
+    =.  ctx  (fire-raw-packet ctx now i.packets)
     $(packets t.packets, slots (dec slots))
   ::  +wake: handle elapsed timer
   ::
@@ -1576,10 +1608,10 @@
     =-  =.  live.state  live.-
         (lose state dead.-)
     ::
-    ^-  [dead=(list live-packet) live=(qeu live-packet)]
+    ^-  [dead=(list live-raw-packet) live=(qeu live-raw-packet)]
     ::
-    =|  dead=(list live-packet)
-    =/  live=(qeu live-packet)  live.state
+    =|  dead=(list live-raw-packet)
+    =/  live=(qeu live-raw-packet)  live.state
     ::  binary search through :live for dead packets
     ::
     ::    The :live packet tree is sorted right-to-left by the packets'
@@ -1645,36 +1677,36 @@
   ::
   |=  [now=@da eny=@ =meal]
   ::
-  |^  ^-  [gifts=(list gift) fragments=(list @)]
+  |^  ^-  [gifts=(list gift) parts=(list partial-message-blob)]
       ::
-      =+  ^-  [gifts=(list gift) =encoding message=@]  generate-message
+      =+  ^-  [gifts=(list gift) =encoding =message-blob]  generate-message
       ::
-      [gifts (generate-fragments encoding message)]
+      [gifts (generate-fragments encoding message-blob)]
   ::  +generate-fragments: split a message into packets
   ::
   ++  generate-fragments
-    |=  [=encoding message=@]
-    ^-  (list @)
-    ::  total-packets: number of packets for message
+    |=  [=encoding =message-blob]
+    ^-  (list partial-message-blob)
+    ::  total-fragments: number of packets for message
     ::
     ::    Each packet has max 2^13 bits so it fits in the MTU on most systems.
     ::
-    =/  total-fragments=@ud  (met 13 message)
+    =/  total-fragments=fragment-num  (met 13 message-blob)
     ::  if message fits in one packet, don't fragment
     ::
     ?:  =(1 total-fragments)
-      [(encode-packet [our her] encoding message) ~]
+      [(encode-raw-packet [our her] encoding message-blob) ~]
     ::  fragments: fragments generated from splitting message
     ::
-    =/  fragments=(list @)  (rip 13 message)
-    =/  fragment-index=@ud  0
+    =/  fragments=(list @)  (rip 13 message-blob)
+    =/  fragment-index=fragment-num  0
     ::  wrap each fragment in a %none encoding of a %carp meal
     ::
-    |-  ^-  (list @)
+    |-  ^-  (list partial-message-blob)
     ?~  fragments  ~
     ::
-    :-  ^-  @
-        %^  encode-packet  [our her]  %none
+    :-  ^-  partial-message-blob
+        %^  encode-raw-packet  [our her]  %none
         %-  jam
         ^-  ^meal
         :+  %carp
@@ -1686,11 +1718,11 @@
   ::  +generate-message: generate message from meal
   ::
   ++  generate-message
-    ^-  [gifts=(list gift) =encoding payload=@]
+    ^-  [gifts=(list gift) =encoding =message-blob]
     ::  if :meal is just a single fragment, don't bother double-encrypting it
     ::
     ?:  =(%carp -.meal)
-      [gifts=~ encoding=%none payload=(jam meal)]
+      [gifts=~ encoding=%none message-blob=(jam meal)]
     ::  if this channel has a symmetric key, use it to encrypt
     ::
     ?^  fast-key.pki-info
@@ -1733,17 +1765,17 @@
 ++  message-decoder
   =>  |%
       +$  gift
-        $%  [%fore =ship =lane packet=@]
-            [%have =bone route=path message=*]
+        $%  [%fore =ship =lane =raw-packet-blob]
+            [%have =bone route=path payload=*]
             [%symmetric-key =symmetric-key]
             [%meet =ship =life =public-key]
-            [%rack =bone =packet-hash error=(unit error)]
+            [%rack =bone =raw-packet-hash error=(unit error)]
             [%rout =lane]
-            [%sack =bone =packet-hash error=(unit error)]
+            [%sack =bone =raw-packet-hash error=(unit error)]
         ==
       +$  task
         $%  [%done =bone error=(unit error)]
-            [%hear =lane =packet-hash =encoding packet=@]
+            [%hear =lane =raw-packet-hash =encoding =packet-blob]
         ==
       --
   ::
@@ -1760,13 +1792,13 @@
   ++  give  |=(=gift decoder-core(gifts [gift gifts]))
   ::
   ++  decode-packet
-    |=  [=encoding packet=@]
+    |=  [=encoding =packet-blob]
     ^-  [[authenticated=? =meal] _decoder-core]
     ::
     =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =meal]
         ::
         %-  (interpret-packet her crypto-core pki-info)
-        [encoding packet]
+        [encoding packet-blob]
     ::
     :-  [authenticated meal]
     |-  ^+  decoder-core
@@ -1789,7 +1821,7 @@
           bone.task
           message-seq.to-apply
           authenticated=%.y
-          packet-hash.to-apply
+          raw-packet-hash.to-apply
           lane.to-apply
           inbound-state
         ==
@@ -1797,7 +1829,7 @@
       abet:(on-message-completed:assembler error.task)
     ::
         %hear
-      =^  decoded  decoder-core  (decode-packet [encoding packet]:task)
+      =^  decoded  decoder-core  (decode-packet [encoding packet-blob]:task)
       ::
       =?  decoder-core  authenticated.decoded  (give %rout lane.task)
       ::
@@ -1808,7 +1840,7 @@
           %back
         ~|  %unauthenticated-ack-from^her
         ?>  authenticated.decoded
-        (give %rack [bone packet-hash error]:meal)
+        (give %rack [bone raw-packet-hash error]:meal)
       ::
           ::  %bond: we heard a full-message packet; assemble and process it
           ::
@@ -1822,12 +1854,12 @@
             bone.message-id.meal
             message-seq.message-id.meal
             authenticated.decoded
-            packet-hash.task
+            raw-packet-hash.task
             lane.task
             inbound-state
           ==
         ::
-        abet:(on-bond:assembler [remote-route message]:meal)
+        abet:(on-bond:assembler [remote-route payload]:meal)
       ::
           ::  %carp: we heard a message fragment; try to assemble into a message
           ::
@@ -1843,7 +1875,7 @@
             bone.message-id
             message-seq.message-id
             authenticated.decoded
-            packet-hash.task
+            raw-packet-hash.task
             lane.task
             inbound-state
           ==
@@ -1855,14 +1887,14 @@
         :*  (number-to-encoding encoding-num.message-descriptor.meal)
             num-fragments.message-descriptor.meal
             fragment-num.meal
-            message-fragment.meal
+            partial-message-blob.meal
         ==
       ::
           ::  %fore: we heard a packet to forward; convert origin and pass it on
           ::
           %fore
         =/  =lane  (set-forward-origin lane.task lane.meal)
-        (give %fore ship.meal lane payload.meal)
+        (give %fore ship.meal lane raw-packet-blob.meal)
       ==
     ::
     ==
@@ -1873,7 +1905,7 @@
             =message-seq
         ::
             authenticated=?
-            =packet-hash
+            =raw-packet-hash
             =lane
         ::
             =inbound-state
@@ -1888,7 +1920,7 @@
     ++  give-ack
       |=  error=(unit error)
       ^+  assembler-core
-      (give %sack bone packet-hash error)
+      (give %sack bone raw-packet-hash error)
     ::
     ++  give-duplicate-ack
       (give-ack (~(get by nacks.inbound-state) message-seq))
@@ -1907,7 +1939,7 @@
     ::  +on-bond: handle a packet containing a full message
     ::
     ++  on-bond
-      |=  [route=path message=*]
+      |=  [route=path payload=*]
       ^+  assembler-core
       ::  if we already acked this message, ack it again
       ::  if later than next expected message or already being processed, ignore
@@ -1917,15 +1949,16 @@
       ?.  =(~ awaiting-application.inbound-state)     assembler-core
       ::  record message as in-process and delete partial message
       ::
-      =.  awaiting-application.inbound-state  `[message-seq packet-hash lane]
+      =.  awaiting-application.inbound-state
+        `[message-seq raw-packet-hash lane]
       =.  partial-messages.inbound-state
         (~(del by partial-messages.inbound-state) message-seq)
       ::
-      (give [%have bone route message])
+      (give [%have bone route payload])
     ::  +on-carp: add a fragment to a partial message, possibly completing it
     ::
     ++  on-carp
-      |=  [=encoding count=@ud fragment-num=@ud fragment=@]
+      |=  [=encoding count=@ud =fragment-num =partial-message-blob]
       ^+  assembler-core
       ::
       ?:  (lth message-seq last-acked.inbound-state)  give-duplicate-ack
@@ -1946,20 +1979,20 @@
       ::
       =.  num-received.partial-message  +(num-received.partial-message)
       =.  fragments.partial-message
-        (~(put by fragments.partial-message) fragment-num fragment)
+        (~(put by fragments.partial-message) fragment-num partial-message-blob)
       ::  if we haven't received all fragments, update state and ack packet
       ::
       ?.  =(num-received next-fragment):partial-message
         =.  fragments.partial-message
-          (~(put by fragments.partial-message) message-seq fragment)
+          (~(put by fragments.partial-message) message-seq partial-message-blob)
         ::
         (give-ack ~)
       ::  assemble and decode complete message
       ::
-      =/  message-buffer=@
+      =/  =message-blob
         (assemble-fragments [next-fragment fragments]:partial-message)
       ::
-      =^  decoded  decoder-core  (decode-packet encoding message-buffer)
+      =^  decoded  decoder-core  (decode-packet encoding message-blob)
       ::
       =.  authenticated  |(authenticated authenticated.decoded)
       =*  meal  meal.decoded
@@ -1968,26 +2001,28 @@
           %back
         ~|  %ames-back-insecure-from^her
         ?>  authenticated
-        (give %rack bone [packet-hash error]:meal.decoded)
+        (give %rack bone [raw-packet-hash error]:meal.decoded)
       ::
           %bond
         ~|  %ames-message-assembly-failed
         ?>  &(authenticated =([bone message-seq] message-id.meal))
         ::
-        (on-bond [remote-route message]:meal)
+        (on-bond [remote-route payload]:meal)
       ::
           %carp  ~|(%ames-meta-carp !!)
           %fore
         =/  adjusted-lane=^lane  (set-forward-origin lane lane.meal)
-        (give %fore ship.meal adjusted-lane payload.meal)
+        (give %fore ship.meal adjusted-lane raw-packet-blob.meal)
       ==
     ::
     ++  assemble-fragments
-      =|  index=@
-      =|  sorted-fragments=(list @)
+      =|  index=fragment-num
+      =|  sorted-fragments=(list partial-message-blob)
       ::
-      |=  [next-fragment=@ud fragments=(map @ud @)]
-      ^-  @
+      |=  $:  next-fragment=fragment-num
+              fragments=(map fragment-num partial-message-blob)
+          ==
+      ^-  message-blob
       ::  final packet; concatenate fragment buffers
       ::
       ?:  =(next-fragment index)
@@ -1996,7 +2031,7 @@
         |=(a=@ [1 a])
       ::  not the final packet; find fragment by index and prepend to list
       ::
-      =/  current-fragment=@  (~(got by fragments) index)
+      =/  current-fragment=partial-message-blob  (~(got by fragments) index)
       $(index +(index), sorted-fragments [current-fragment sorted-fragments])
     --
   --
@@ -2021,7 +2056,7 @@
       ==
   ::  inner gate: decode a packet
   ::
-  |=  [=encoding buffer=@]
+  |=  [=encoding =packet-blob]
   ^-  [gifts=(list gift) authenticated=? =meal]
   ::
   =|  gifts=(list gift)
@@ -2037,13 +2072,13 @@
   ++  decode-none
     ^-  [gifts=(list gift) authenticated=? =meal]
     ::
-    (produce-meal authenticated=%.n buffer)
+    (produce-meal authenticated=%.n packet-blob)
   ::  +decode-open: decode a signed, unencrypted packet
   ::
   ++  decode-open
     ^-  [gifts=(list gift) authenticated=? =meal]
     ::
-    =/  packet-noun  (cue buffer)
+    =/  packet-noun  (cue packet-blob)
     =/  open-packet  (open:packet-format packet-noun)
     ::
     =?    decoder-core
@@ -2068,8 +2103,8 @@
     ?~  fast-key.pki-info
       ~|  %ames-no-fast-key^her  !!
     ::
-    =/  key-hash=@   (end 7 1 buffer)
-    =/  payload=@    (rsh 7 1 buffer)
+    =/  key-hash=@   (end 7 1 packet-blob)
+    =/  payload=@    (rsh 7 1 packet-blob)
     ::
     ~|  [%ames-bad-fast-key `@ux`key-hash `@ux`key-hash.u.fast-key.pki-info]
     ?>  =(key-hash key-hash.u.fast-key.pki-info)
@@ -2082,7 +2117,7 @@
   ++  decode-full
     ^-  [gifts=(list gift) authenticated=? =meal]
     ::
-    =/  packet-noun  (cue buffer)
+    =/  packet-noun  (cue packet-blob)
     =/  full-packet  (full:packet-format packet-noun)
     ::
     =?    decoder-core
@@ -2099,13 +2134,13 @@
       %-  need
       (tear:as:crypto-core her-public-key encrypted-payload.full-packet)
     ::
-    =+  %-  ,[=symmetric-key jammed-message=@]
+    =+  %-  ,[=symmetric-key jammed-packet=@]
         (cue jammed-wrapped)
     ::
     =.  decoder-core  (give %symmetric-key symmetric-key)
     =.  decoder-core  (give %meet her her-life.pki-info her-public-key)
     ::
-    (produce-meal authenticated=%.y jammed-message)
+    (produce-meal authenticated=%.y jammed-packet)
   ::  +apply-deed: produce a %meet gift if the deed checks out
   ::
   ++  apply-deed
@@ -2157,15 +2192,15 @@
   ::
   ++  decoder-core  .
   --
-::  +decode-packet: deserialize a packet from a bytestream, reading the header
+::  +decode-raw-packet: deserialize packet from bytestream, reading header
 ::
-++  decode-packet
-  |=  buffer=@uvO
-  ^-  packet
+++  decode-raw-packet
+  |=  =raw-packet-blob
+  ^-  raw-packet
   ::  first 32 (2^5) bits are header; the rest is body
   ::
-  =/  header  (end 5 1 buffer)
-  =/  body    (rsh 5 1 buffer)
+  =/  header  (end 5 1 raw-packet-blob)
+  =/  body    (rsh 5 1 raw-packet-blob)
   ::
   =/  version           (end 0 3 header)
   =/  checksum          (cut 0 [3 20] header)
@@ -2179,28 +2214,28 @@
   :+  :-  to=(end 3 receiver-width body)
       from=(cut 3 [receiver-width sender-width] body)
     encoding=message-encoding
-  payload=(rsh 3 (add receiver-width sender-width) body)
-::  +encode-packet: serialize a packet into a bytestream
+  packet=(rsh 3 (add receiver-width sender-width) body)
+::  +encode-raw-packet: serialize a packet into a bytestream
 ::
-++  encode-packet
-  |=  =packet
-  ^-  @uvO
+++  encode-raw-packet
+  |=  =raw-packet
+  ^-  raw-packet-blob
   ::
-  =/  receiver-type   (encode-ship-type to.packet)
+  =/  receiver-type   (encode-ship-type to.raw-packet)
   =/  receiver-width  (bex +(receiver-type))
   ::
-  =/  sender-type   (encode-ship-type from.packet)
+  =/  sender-type   (encode-ship-type from.raw-packet)
   =/  sender-width  (bex +(sender-type))
-  ::  body: <<receiver sender payload>>
+  ::  body: <<receiver sender content>>
   ::
   =/  body
     ;:  mix
-      to.packet
-      (lsh 3 receiver-width from.packet)
-      (lsh 3 (add receiver-width sender-width) payload.packet)
+      to.raw-packet
+      (lsh 3 receiver-width from.raw-packet)
+      (lsh 3 (add receiver-width sender-width) packet-blob.raw-packet)
     ==
   ::
-  =/  encoding-number  (encoding-to-number encoding.packet)
+  =/  encoding-number  (encoding-to-number encoding.raw-packet)
   ::  header: 32-bit header assembled from bitstreams of fields
   ::
   ::    <<protocol-version checksum receiver-type sender-type encoding>>
