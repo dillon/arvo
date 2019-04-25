@@ -383,6 +383,8 @@
       [%is port=@ud lane=(unit lane) ipv6=@is]
       [%ix (expiring [port=@ud ipv4=@if])]
   ==
+::
++$  lois  [? lane=*]
 +$  symmetric-key       @uvI
 +$  public-key          pass
 +$  private-key         ring
