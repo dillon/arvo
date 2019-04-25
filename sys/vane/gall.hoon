@@ -121,6 +121,7 @@
   ::
   =*  mas  mast.all
   =*  bowl-type  -:!>(*bowl)
+  =*  mo-context  +
   ::
   |_  $:  hen=duct
           moves=(list move)
@@ -139,9 +140,9 @@
   ::  +mo-abet: resolve moves.
   ::
   ++  mo-abet
-    ^-  [(list move) _+>+] :: FIXME get rid of lark
+    ^-  [(list move) _mo-context]
     ::
-    :_  +>+
+    :_  mo-context
     =/  reshape
       |=  mov=move
       ^-  move
