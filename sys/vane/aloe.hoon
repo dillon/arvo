@@ -225,7 +225,7 @@
       by-bone=(map bone duct)
   ==
 +$  blocked-actions
-  $:  inbound-packets=(list [=lane =raw-packet-blob])
+  $:  inbound-packets=(list [=lane =raw-packet-hash =raw-packet])
       outbound-messages=(list [=duct route=path payload=*])
   ==
 +$  inbound-state
@@ -361,7 +361,7 @@
       ::    lane: IP route, or null if unknown
       ::    payload: the wrapped packet, to be sent to :ship
       ::
-      [%fore =ship lane=(unit lane) raw-packet-blob=@]
+      [%fore =ship lane=(unit lane) =raw-packet-blob]
   ==
 ::  +pki-context: context for messaging between :our and peer
 ::
@@ -618,7 +618,8 @@
     =.  main-core
       |-  ^+  main-core
       ?~  inbound  main-core
-      =.  main-core  (work [%hear i.inbound])
+      =.  main-core
+        (on-hear-from-peer peer-state i.inbound)
       $(inbound t.inbound)
     ::
     =/  outbound  (flop outbound-messages.blocked-actions.ship-state)
@@ -634,20 +635,29 @@
     ::
     abet:(done:(per-peer ship) bone error)
   ::
+  ++  on-hear-from-peer
+    |=  [=peer-state =lane =raw-packet-hash =raw-packet]
+    =/  peer-core  (per-peer-with-state from.raw-packet peer-state)
+    ::
+    abet:(hear:peer-core lane raw-packet-hash [encoding packet-blob]:raw-packet)
+  ::
   ++  on-hear
     |=  [=lane =raw-packet-blob]
     ^+  main-core
     ::
-    =/  decoded=raw-packet  (decode-raw-packet raw-packet-blob)
-    ?>  =(our to.decoded)
-    =/  her=ship  from.decoded
+    =/  =raw-packet  (decode-raw-packet raw-packet-blob)
+    ?>  =(our to.raw-packet)
+    =/  her=ship  from.raw-packet
     ::
     =/  ship-state  (~(get by peers.ames-state) her)
+    =/  =raw-packet-hash  (shaf %flap raw-packet-blob)
     ?:  ?=([~ %peer *] ship-state)
-      =/  peer-core  (per-peer-with-state her peer-state.u.ship-state)
-      =/  =raw-packet-hash  (shaf %flap raw-packet-blob)
-      ::
-      abet:(hear:peer-core lane raw-packet-hash [encoding packet-blob]:decoded)
+      %-  on-hear-from-peer
+      :*  peer-state.u.ship-state
+          lane
+          raw-packet-hash
+          raw-packet
+      ==
     ::
     =/  =blocked-actions
       ?~  ship-state
@@ -655,7 +665,7 @@
       blocked-actions.u.ship-state
     ::
     =.  inbound-packets.blocked-actions
-      [[lane raw-packet-blob] inbound-packets.blocked-actions]
+      [[lane raw-packet-hash raw-packet] inbound-packets.blocked-actions]
     ::
     =.  main-core  (give %veil her)
     =.  peers.ames-state
