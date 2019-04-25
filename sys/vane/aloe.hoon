@@ -230,11 +230,11 @@
   ==
 +$  inbound-state
   $:  last-acked=message-seq
-      partial-messages=(map message-seq partial-message)
-      awaiting-application=(unit [=message-seq =raw-packet-hash =lane])
+      live-messages=(map message-seq live-hear-message)
+      pending-vane-ack=(unit [=message-seq =raw-packet-hash =lane])
       nacks=(map message-seq error)
   ==
-+$  partial-message
++$  live-hear-message
   $:  =encoding
       num-received=fragment-num
       next-fragment=fragment-num
@@ -249,17 +249,17 @@
 +$  outbound-state
   $:  next-tick=message-seq
       till-tick=message-seq
-      live-messages=(map message-seq live-message)
+      live-messages=(map message-seq live-send-message)
       =pump-state
   ==
-::  +live-message: state of a partially sent message
+::  +live-send-message: state of a partially sent message
 ::
 ::    :error is a double unit:
 ::      ~           ::  we don't know whether the message succeeded or failed
 ::      [~ ~]       ::  we know the message succeeded
 ::      [~ ~ error] ::  we know the message failed
 ::
-+$  live-message
++$  live-send-message
   $:  error=(unit (unit error))
       remote-route=path
       total-fragments=fragment-num
@@ -1154,20 +1154,21 @@
     |=  [index=@ud window-slots=@ud packets=(list raw-packet-descriptor)]
     ^+  [[remaining-slots=window-slots packets=packets] manager-core]
     ::
-    =/  =live-message  (~(got by live-messages.outbound-state) index)
+    =/  =live-send-message  (~(got by live-messages.outbound-state) index)
     ::
     |-  ^+  [[window-slots packets] manager-core]
     ::  TODO document this condition
     ::
-    ?:  |(=(0 window-slots) ?=(~ unsent-packets.live-message))
+    ?:  |(=(0 window-slots) ?=(~ unsent-packets.live-send-message))
       =.  live-messages.outbound-state
-        (~(put by live-messages.outbound-state) index live-message)
+        (~(put by live-messages.outbound-state) index live-send-message)
       [[window-slots packets] manager-core]
     ::
-    %_  $
-      window-slots                 (dec window-slots)
-      packets                      [i.unsent-packets.live-message packets]
-      unsent-packets.live-message  t.unsent-packets.live-message
+    %_    $
+        window-slots  (dec window-slots)
+        packets       [i.unsent-packets.live-send-message packets]
+        unsent-packets.live-send-message
+      t.unsent-packets.live-send-message
     ==
   ::  +apply-packet-ack: possibly acks or nacks whole message
   ::
@@ -1175,12 +1176,12 @@
     |=  [=fragment-index error=(unit error)]
     ^+  manager-core
     ::
-    =/  live-message=(unit live-message)
+    =/  live-send-message=(unit live-send-message)
       (~(get by live-messages.outbound-state) message-seq.fragment-index)
-    ::  if we're already done with :live-message, no-op
+    ::  if we're already done with :live-send-message, no-op
     ::
-    ?~  live-message                   manager-core
-    ?~  unsent-packets.u.live-message  manager-core
+    ?~  live-send-message                   manager-core
+    ?~  unsent-packets.u.live-send-message  manager-core
     ::  if packet says message failed, save this nack and clear the message
     ::
     ?^  error
@@ -1190,7 +1191,7 @@
       ::
       =.  live-messages.outbound-state
         %+  ~(put by live-messages.outbound-state)  message-seq
-        u.live-message(unsent-packets ~, error `error)
+        u.live-send-message(unsent-packets ~, error `error)
       ::  remove this message's packets from our packet pump queues
       ::
       =^  pump-gifts  pump-state.outbound-state
@@ -1199,22 +1200,23 @@
       (drain-pump-gifts pump-gifts)
     ::  sanity check: make sure we haven't acked more packets than exist
     ::
-    ?>  (lth [acked-fragments total-fragments]:u.live-message)
+    ?>  (lth [acked-fragments total-fragments]:u.live-send-message)
     ::  apply the ack on this packet to our ack counter for this message
     ::
-    =.  acked-fragments.u.live-message  +(acked-fragments.u.live-message)
+    =.  acked-fragments.u.live-send-message
+      +(acked-fragments.u.live-send-message)
     ::  if final packet, we know no error ([~ ~]); otherwise, unknown (~)
     ::
-    =.  error.u.live-message
-      ?:  =(acked-fragments total-fragments):u.live-message
+    =.  error.u.live-send-message
+      ?:  =(acked-fragments total-fragments):u.live-send-message
         [~ ~]
       ~
-    ::  update :live-messages with modified :live-message
+    ::  update :live-messages with modified :live-send-message
     ::
     =.  live-messages.outbound-state
       %+  ~(put by live-messages.outbound-state)
         message-seq.fragment-index
-      u.live-message
+      u.live-send-message
     ::
     manager-core
   ::  +handle-message-request: break a message into packets, marking as unsent
@@ -1242,7 +1244,7 @@
         ::
         live-messages.outbound-state
       %+  ~(put by live-messages.outbound-state)  next-tick.outbound-state
-      ^-  live-message
+      ^-  live-send-message
       ::
       :*  error=~
           remote-route
@@ -1830,7 +1832,7 @@
     ?-    -.task
         %done
       =/  =inbound-state  (~(got by bone-states) bone.task)
-      =/  to-apply  (need awaiting-application.inbound-state)
+      =/  to-apply  (need pending-vane-ack.inbound-state)
       ::
       =/  assembler
         %-  message-assembler  :*
@@ -1946,7 +1948,7 @@
       ^+  assembler-core
       ::
       =.  last-acked.inbound-state  +(last-acked.inbound-state)
-      =.  awaiting-application.inbound-state  ~
+      =.  pending-vane-ack.inbound-state  ~
       ::
       =?  nacks.inbound-state  ?=(^ error)
         (~(put by nacks.inbound-state) message-seq u.error)
@@ -1962,13 +1964,13 @@
       ::
       ?:  (lth message-seq last-acked.inbound-state)  give-duplicate-ack
       ?:  (gth message-seq last-acked.inbound-state)  assembler-core
-      ?.  =(~ awaiting-application.inbound-state)     assembler-core
+      ?.  =(~ pending-vane-ack.inbound-state)         assembler-core
       ::  record message as in-process and delete partial message
       ::
-      =.  awaiting-application.inbound-state
+      =.  pending-vane-ack.inbound-state
         `[message-seq raw-packet-hash lane]
-      =.  partial-messages.inbound-state
-        (~(del by partial-messages.inbound-state) message-seq)
+      =.  live-messages.inbound-state
+        (~(del by live-messages.inbound-state) message-seq)
       ::
       (give [%have bone route payload])
     ::  +on-carp: add a fragment to a partial message, possibly completing it
@@ -1980,33 +1982,33 @@
       ?:  (lth message-seq last-acked.inbound-state)  give-duplicate-ack
       ?:  (gth message-seq last-acked.inbound-state)  assembler-core
       ::
-      =/  =partial-message
-        %+  fall  (~(get by partial-messages.inbound-state) message-seq)
+      =/  =live-hear-message
+        %+  fall  (~(get by live-messages.inbound-state) message-seq)
         [encoding num-received=0 next-fragment=count fragments=~]
       ::  all fragments must agree on the message parameters
       ::
-      ?>  =(encoding.partial-message encoding)
-      ?>  (gth next-fragment.partial-message fragment-num)
-      ?>  =(next-fragment.partial-message count)
+      ?>  =(encoding.live-hear-message encoding)
+      ?>  (gth next-fragment.live-hear-message fragment-num)
+      ?>  =(next-fragment.live-hear-message count)
       ::
-      ?:  (~(has by fragments.partial-message) fragment-num)
+      ?:  (~(has by fragments.live-hear-message) fragment-num)
         give-duplicate-ack
       ::  register this fragment in the state
       ::
-      =.  num-received.partial-message  +(num-received.partial-message)
-      =.  fragments.partial-message
-        (~(put by fragments.partial-message) fragment-num partial-message-blob)
+      =.  num-received.live-hear-message  +(num-received.live-hear-message)
+      =.  fragments.live-hear-message
+        (~(put by fragments.live-hear-message) fragment-num partial-message-blob)
       ::  if we haven't received all fragments, update state and ack packet
       ::
-      ?.  =(num-received next-fragment):partial-message
-        =.  fragments.partial-message
-          (~(put by fragments.partial-message) fragment-num partial-message-blob)
+      ?.  =(num-received next-fragment):live-hear-message
+        =.  fragments.live-hear-message
+          (~(put by fragments.live-hear-message) fragment-num partial-message-blob)
         ::
         (give-ack ~)
       ::  assemble and decode complete message
       ::
       =/  =message-blob
-        (assemble-fragments [next-fragment fragments]:partial-message)
+        (assemble-fragments [next-fragment fragments]:live-hear-message)
       ::
       =^  decoded  decoder-core  (decode-packet encoding message-blob)
       ::
