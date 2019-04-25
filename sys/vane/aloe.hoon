@@ -418,16 +418,16 @@
 +$  signature             @
 +$  message-descriptor    [=message-id encoding-num=@ num-fragments=@]
 +$  message-id            [=bone =message-seq]
-+$  message-seq           @ud
-+$  fragment-num          @ud
++$  message-seq           @udmessage
++$  fragment-num          @udfragment
 +$  fragment-index        [=message-seq =fragment-num]
 +$  raw-packet-hash       @uvH
 +$  error                 [tag=@tas =tang]
-+$  raw-packet            [[to=ship from=ship] =encoding packet-blob=@]
-+$  raw-packet-blob       @uvO
-+$  packet-blob           @uvO
-+$  message-blob          @uvO
-+$  partial-message-blob  @uvO
++$  raw-packet            [[to=ship from=ship] =encoding =packet-blob]
++$  raw-packet-blob       @uwrawpacket
++$  packet-blob           @uwpacket
++$  message-blob          @uwpacket  ::  XX  @uwmessage
++$  partial-message-blob  @uwpartialmessage
 +$  encoding              ?(%none %open %fast %full)
 ::  +expiring: a value that expires at the specified date
 ::
@@ -1214,7 +1214,9 @@
     ^+  manager-core
     ::  encode the message as packets, flipping bone parity
     ::
-    =+  ^-  [meal-gifts=(list gift:encode-meal) fragments=(list @)]
+    =+  ^-  $:  meal-gifts=(list gift:encode-meal)
+                fragments=(list partial-message-blob)
+            ==
         ::
         %-  (encode-meal pki-context)
         :+  now  eny
@@ -1238,16 +1240,16 @@
           acked-fragments=0
           ::
           ^=  unsent-packets  ^-  (list raw-packet-descriptor)
-          =/  index  0
+          =|  index=fragment-num
           |-  ^-  (list raw-packet-descriptor)
           ?~  fragments  ~
           ::
           :-  ^-  raw-packet-descriptor
               ::
               :^    virgin=&
-                  [index next-tick.outbound-state]
+                  [next-tick.outbound-state index]
                 (shaf %flap i.fragments)
-              i.fragments
+              `raw-packet-blob``@`i.fragments
           ::
           $(fragments t.fragments, index +(index))
       ==
@@ -1695,7 +1697,10 @@
     ::  if message fits in one packet, don't fragment
     ::
     ?:  =(1 total-fragments)
-      [(encode-raw-packet [our her] encoding message-blob) ~]
+      :_  ~
+      ^-  partial-message-blob
+      ^-  @
+      (encode-raw-packet [our her] encoding message-blob)
     ::  fragments: fragments generated from splitting message
     ::
     =/  fragments=(list @)  (rip 13 message-blob)
@@ -1706,6 +1711,7 @@
     ?~  fragments  ~
     ::
     :-  ^-  partial-message-blob
+        ^-  @
         %^  encode-raw-packet  [our her]  %none
         %-  jam
         ^-  ^meal
@@ -1984,7 +1990,7 @@
       ::
       ?.  =(num-received next-fragment):partial-message
         =.  fragments.partial-message
-          (~(put by fragments.partial-message) message-seq partial-message-blob)
+          (~(put by fragments.partial-message) fragment-num partial-message-blob)
         ::
         (give-ack ~)
       ::  assemble and decode complete message

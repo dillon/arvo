@@ -186,7 +186,10 @@
     %-  encoder
     [now.fix eny.fix meal]
   ::
-  =/  spat  (encode-raw-packet:aloe [our.fix her.fix] %none (jam meal))
+  =/  spat
+    ^-  partial-message-blob:aloe
+    ^-  @
+    (encode-raw-packet:aloe [our.fix her.fix] %none (jam meal))
   ::
   %+  expect-eq
     !>  [~ ~[spat]]
