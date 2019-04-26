@@ -300,9 +300,9 @@
 ::    TODO: document
 ::
 +$  pump-metrics
-  $:  $:  window-length=@ud
-          max-packets-out=@ud
-          retry-length=@ud
+  $:  $:  live-packets=@ud
+          max-live-packets=@ud
+          lost-packets=@ud
       ==
       $:  rtt=@dr
           last-sent=@da
@@ -1151,17 +1151,17 @@
   ::  +pop-unsent-packets: unqueue up to :window-slots unsent packets to pump
   ::
   ++  pop-unsent-packets
-    |=  [index=@ud window-slots=@ud packets=(list raw-packet-descriptor)]
+    |=  [=message-seq window-slots=@ud packets=(list raw-packet-descriptor)]
     ^+  [[remaining-slots=window-slots packets=packets] manager-core]
     ::
-    =/  =live-send-message  (~(got by live-messages.outbound-state) index)
+    =/  =live-send-message  (~(got by live-messages.outbound-state) message-seq)
     ::
     |-  ^+  [[window-slots packets] manager-core]
     ::  TODO document this condition
     ::
     ?:  |(=(0 window-slots) ?=(~ unsent-packets.live-send-message))
       =.  live-messages.outbound-state
-        (~(put by live-messages.outbound-state) index live-send-message)
+        (~(put by live-messages.outbound-state) message-seq live-send-message)
       [[window-slots packets] manager-core]
     ::
     %_    $
@@ -1372,17 +1372,17 @@
     |=  metrics=pump-metrics
     ^-  @ud
     ::
-    %+  sub-safe  max-packets-out.metrics
-    (add [window-length retry-length]:metrics)
+    %+  sub-safe  max-live-packets.metrics
+    (add [live-packets lost-packets]:metrics)
   ::  +initialize-pump-metrics: make blank metrics from :now, stateless
   ::
   ++  initialize-pump-metrics
     |=  now=@da
     ^-  pump-metrics
     ::
-    :*  :*  ^=  window-length    0
-            ^=  max-packets-out  2
-            ^=  retry-length     0
+    :*  :*  ^=  live-packets      0
+            ^=  max-live-packets  2
+            ^=  lost-packets      0
         ==
         :*  ^=  rtt              ~s5
             ^=  last-sent        `@da`(sub now ~d1)
@@ -1451,7 +1451,7 @@
   ::
   ::    TODO test
   ::    TODO: shouldn't this adjust the accounting in :pump-metrics?
-  ::          specifically, :retry-length and :window-length
+  ::          specifically, :lost-packets and :live-packets
   ::
   ++  cull
     |=  [state=pump-state =message-seq]
@@ -1499,7 +1499,7 @@
     =*  fragment-index  fragment-index.raw-packet-descriptor.u.live-raw-packet
     =.  ctx  (give ctx [%good raw-packet-hash fragment-index rtt error])
     ::
-    =.  window-length.metrics.state.ctx  (dec window-length.metrics.state.ctx)
+    =.  live-packets.metrics.state.ctx  (dec live-packets.metrics.state.ctx)
     ::
     ctx
   ::  +enqueue-lost-raw-packet: ordered enqueue into :lost.pump-state
@@ -1543,7 +1543,7 @@
     =/  metrics  metrics.state.ctx
     ::  sanity check: make sure we don't exceed the max packets in flight
     ::
-    ?>  (lth [window-length max-packets-out]:metrics)
+    ?>  (lth [live-packets max-live-packets]:metrics)
     ::  reset :last-sent date to :now or incremented previous value
     ::
     =.  last-sent.metrics.state.ctx
@@ -1559,7 +1559,7 @@
       +(last-deadline.metrics)
     ::  increment our count of packets in flight
     ::
-    =.  window-length.metrics.state.ctx  +(window-length.metrics.state.ctx)
+    =.  live-packets.metrics.state.ctx  +(live-packets.metrics.state.ctx)
     ::  register the packet in the :live queue
     ::
     =.  live.state.ctx
@@ -1582,8 +1582,8 @@
     ::
     %=  $
       packets                      t.packets
-      window-length.metrics.state  (dec window-length.metrics.state)
-      retry-length.metrics.state   +(retry-length.metrics.state)
+      live-packets.metrics.state   (dec live-packets.metrics.state)
+      lost-packets.metrics.state   +(lost-packets.metrics.state)
     ==
   ::  +send-packets: resends lost packets then sends new until window closes
   ::
@@ -1591,26 +1591,33 @@
     |=  [ctx=pump-context now=@da packets=(list raw-packet-descriptor)]
     ^-  pump-context
     =-  ~&  %send-packets^requested=(lent packets)^sent=(lent gifts.-)  -
-    ::  make sure we weren't asked to send more packets than allowed
+    =.  ctx  (send-lost-packets ctx now)
+    (send-new-packets ctx now packets)
+  ::
+  ::  +send-lost-packets: resend as many lost packets as possible
+  ::
+  ++  send-lost-packets
+    =|  count=@ud
+    |=  [ctx=pump-context now=@da]
+    ^-  pump-context
+    ?:  (gte count max-live-packets.metrics.state.ctx)
+      ctx
+    ?:  =(~ lost.state.ctx)
+      ctx
+    =^  lost-raw-packet  lost.state.ctx  ~(get to lost.state.ctx)
+    =.  lost-packets.metrics.state.ctx  (dec lost-packets.metrics.state.ctx)
     ::
-    =/  slots  (window-slots metrics.state.ctx)
-    ?>  (lte (lent packets) slots)
-    ::
-    |-  ^+  ctx
-    ?:  =(0 slots)  ctx
-    ?~  packets     ctx
-    ::  first, resend as many lost packets from our backlog as possible
-    ::
-    ?.  =(~ lost.state.ctx)
-      =^  lost-raw-packet  lost.state.ctx  ~(get to lost.state.ctx)
-      =.  retry-length.metrics.state.ctx  (dec retry-length.metrics.state.ctx)
-      ::
-      =.  ctx  (fire-raw-packet ctx now lost-raw-packet)
-      $(slots (dec slots))
-    ::  now that we've finished the backlog, send the requested packets
-    ::
+    =.  ctx  (fire-raw-packet ctx now lost-raw-packet)
+    $(count +(count))
+  ::
+  ::  +send-new-packets: send the requested packets
+  ::
+  ++  send-new-packets
+    |=  [ctx=pump-context now=@da packets=(list raw-packet-descriptor)]
+    ^-  pump-context
+    ?~  packets  ctx
     =.  ctx  (fire-raw-packet ctx now i.packets)
-    $(packets t.packets, slots (dec slots))
+    $(packets t.packets)
   ::  +wake: handle elapsed timer
   ::
   ++  wake

@@ -385,9 +385,9 @@
   ::
   ;:  weld
     %+  expect-eq
-      !>  :*  ^=  window-length    2
-              ^=  max-packets-out  2
-              ^=  retry-length     0
+      !>  :*  ^=  live-packets      2
+              ^=  max-live-packets  2
+              ^=  lost-packets      0
           ==
       !>  -.metrics.state.result1
   ::
@@ -463,12 +463,91 @@
       !>  [next-tick till-tick]:outbound-state.result2
   ::
     %+  expect-eq
-      !>  [window-length=0 retry-length=0 last-sent=now.fix]
-      !>  =<  [window-length retry-length last-sent]
+      !>  [live-packets=0 lost-packets=0 last-sent=now.fix]
+      !>  =<  [live-packets lost-packets last-sent]
           metrics.pump-state.outbound-state.result2
   ==
 ::
 ++  test-message-manager-mess-fragments  ^-  tang
+  ::
+  =/  =pki-context:aloe
+    =-  [our.fix our-life.fix our-crub.fix her.fix -]
+    ^-  pki-info:aloe
+    [fast-key=~ her-life.fix her-public-keys.fix her-sponsors.fix]
+  ::
+  =/  =pump-state:aloe
+    :+  live=~
+      lost=~
+    (initialize-pump-metrics:pump:aloe now.fix)
+  ::
+  =/  =outbound-state:aloe
+    :*  ^=  next-tick      0
+        ^=  till-tick      0
+        ^=  live-messages  ~
+        pump-state
+    ==
+  ::
+  =/  manager0
+    %-  message-manager:aloe
+    [pki-context now.fix eny.fix bone=4 outbound-state]
+  ~&  %manager0
+  ::
+  =/  manager1
+    %-  work:manager0
+    ^-  task:manager0
+    [%mess /remote/route/foo message=[%message (gulf 1 2.000)]]
+  ~&  %manager1
+  ::
+  =/  result1  abet:manager1
+  ~&  :-  %manager1-abet
+      (window-slots:pump:aloe metrics.pump-state.outbound-state.result1)
+  ::  at a new date, ack first packet
+  ::
+  =/  new-date  `@da`(add now.fix ~s10)
+  =/  manager2
+    %-  message-manager:aloe
+    [pki-context new-date eny.fix bone=4 outbound-state.result1]
+  ~&  :-  %manager2
+      (window-slots:pump:aloe metrics.pump-state.outbound-state.manager2)
+  ::
+  =/  manager3
+    %-  work:manager2
+    ^-  task:manager2
+    [%back raw-packet-hash=0v6.hdfn2.kv3md.d4dv2.npoj8.nkd8k error=~ lag=`@dr`0]
+  ~&  :-  %manager3
+      (window-slots:pump:aloe metrics.pump-state.outbound-state.manager3)
+  ::
+  =/  result3  abet:manager3
+  ~&  :-  %manager3-abet
+      (window-slots:pump:aloe metrics.pump-state.outbound-state.result3)
+  ::
+  ;:  weld
+    %+  expect-eq
+      !>  1
+      !>  (lent (skim gifts.result1 is-gift-symmetric-key))
+  ::
+    %+  expect-eq
+      !>  2
+      !>  (lent (skim gifts.result1 is-gift-send))
+  ::
+    %+  expect-eq
+      !>  0
+      !>  (window-slots:pump:aloe metrics.pump-state.outbound-state.result1)
+  ::
+    %+  expect-eq
+      !>  [live-packets=2 lost-packets=0]
+      !>  [live-packets lost-packets]:metrics.pump-state.outbound-state.result1
+  ::
+    %+  expect-eq
+      !>  1
+      !>  (lent (skim gifts.result3 is-gift-send))
+  ::
+    %+  expect-eq
+      !>  [live-packets=2 lost-packets=0]
+      !>  [live-packets lost-packets]:metrics.pump-state.outbound-state.result3
+  ==
+::
+++  test-message-manager-mess-ack-out-of-order  ^-  tang
   ::
   =/  =pki-context:aloe
     =-  [our.fix our-life.fix our-crub.fix her.fix -]
@@ -535,16 +614,16 @@
       !>  (window-slots:pump:aloe metrics.pump-state.outbound-state.result1)
   ::
     %+  expect-eq
-      !>  [window-length=2 retry-length=0]
-      !>  [window-length retry-length]:metrics.pump-state.outbound-state.result1
+      !>  [live-packets=2 lost-packets=0]
+      !>  [live-packets lost-packets]:metrics.pump-state.outbound-state.result1
   ::
     %+  expect-eq
-      !>  1
+      !>  2
       !>  (lent (skim gifts.result3 is-gift-send))
   ::
     %+  expect-eq
-      !>  [window-length=2 retry-length=0]
-      !>  [window-length retry-length]:metrics.pump-state.outbound-state.result3
+      !>  [live-packets=2 lost-packets=0]
+      !>  [live-packets lost-packets]:metrics.pump-state.outbound-state.result3
   ==
 ::
 ++  is-gift-send
