@@ -1293,6 +1293,8 @@
   --
 ::  |pump: packet pump state machine
 ::
+::    Manages in-flight packets.
+::
 ++  pump
   =>  |%
       ::  +gift: packet pump effect; either %good logical ack, or %send packet
@@ -1785,7 +1787,8 @@
   --
 ::  |message-decoder: decode and assemble input packets into messages
 ::
-::    TODO: document
+::    Manages messages and packets which haven't been sent over the wire
+::    yet.  Passes to +pump to send packets over the wire.
 ::
 ++  message-decoder
   =>  |%
