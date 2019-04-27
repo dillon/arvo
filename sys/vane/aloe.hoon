@@ -214,6 +214,7 @@
   ==
 +$  peer-state
   $:  =pki-info
+      =message-nonce
       lane=(unit lane)
       =bone-manager
       inbound=(map bone inbound-state)
@@ -261,7 +262,7 @@
 ::
 +$  live-send-message
   $:  error=(unit (unit error))
-      remote-route=path
+      route=path
       total-fragments=fragment-num
       acked-fragments=fragment-num
       unsent-packets=(list raw-packet-descriptor)
@@ -318,21 +319,18 @@
 ::
 ::  XX move crypto to packet-blob -> packet decoder
 ::
-+$  packets  (lest packet)
+::  +packet: individual packet, part of a message
+::
+::    message-nonce: id for lest of packets.  Equal to (shaf %thug message-blob)
+::
 +$  packet
-    $:  =message-descriptor
+    $:  =message-nonce
+        num-fragments=fragment-num
         =fragment-num
         =partial-message-blob
     ==
 ::
 +$  message
-  $%  [%back !!]
-      [%bond !!]
-      [%fore !!]
-  ==
-::  +meal: packet payload
-::
-+$  meal
   $%  ::  %back: acknowledgment
       ::
       ::    bone: opaque flow identifier
@@ -344,25 +342,20 @@
       ::  %bond: full message
       ::
       ::    message-id: pair of flow id and message sequence number
-      ::    remote-route: intended recipient module on receiving ship
+      ::    route: intended recipient module on receiving ship
       ::    payload: noun payload
       ::
-      [%bond =message-id remote-route=path payload=*]
-      ::  %carp: message fragment
-      ::
-      ::    message-descriptor: message id and fragment count
-      ::    fragment-num: which fragment is being sent
-      ::    partial-message-blob: one slice of a message's bytestream
-      ::
-      [%carp =message-descriptor =fragment-num =partial-message-blob]
+      [%bond =message-id route=path payload=*]
       ::  %fore: forwarded packet
       ::
       ::    ship: destination ship, to be forwarded to
       ::    lane: IP route, or null if unknown
-      ::    payload: the wrapped packet, to be sent to :ship
+      ::    raw-packet-blob: the wrapped packet, to be sent to :ship
       ::
       [%fore =ship lane=(unit lane) =raw-packet-blob]
   ==
+:: XX  [%carp =message-descriptor =fragment-num =partial-message-blob]
+::
 ::  +pki-context: context for messaging between :our and peer
 ::
 +$  pki-context  [our=ship =our=life crypto-core=acru:ames her=ship =pki-info]
@@ -428,6 +421,7 @@
 +$  packet-blob           @uwpacket
 +$  message-blob          @uwpacket  ::  XX  @uwmessage
 +$  partial-message-blob  @uwpartialmessage
++$  message-nonce         @uwmessagenonce
 +$  encoding              ?(%none %open %fast %full)
 ::  +expiring: a value that expires at the specified date
 ::
@@ -1041,7 +1035,7 @@
             [%back =raw-packet-hash error=(unit error) lag=@dr]
             ::  %mess: send a message
             ::
-            [%mess remote-route=path payload=*]
+            [%mess route=path payload=*]
             ::  %wake: handle an elapsed timer
             ::
             [%wake error=(unit tang)]
@@ -1078,7 +1072,7 @@
     ::
     ?-  -.task
       %back  (handle-packet-ack [raw-packet-hash error lag]:task)
-      %mess  (handle-message-request [remote-route payload]:task)
+      %mess  (handle-message-request [route payload]:task)
       %wake  (wake error.task)
     ==
   ::  +drain-pump-gifts: extract and apply pump effects, clearing pump
@@ -1222,7 +1216,7 @@
   ::  +handle-message-request: break a message into packets, marking as unsent
   ::
   ++  handle-message-request
-    |=  [remote-route=path payload=*]
+    |=  [route=path payload=*]
     ^+  manager-core
     ::  encode the message as packets, flipping bone parity
     ::
@@ -1232,7 +1226,7 @@
         ::
         %-  (encode-meal pki-context)
         :+  now  eny
-        [%bond [(mix bone 1) next-tick.outbound-state] remote-route payload]
+        [%bond [(mix bone 1) next-tick.outbound-state] route payload]
     ::  apply :meal-gifts
     ::
     =.  gifts  (weld (flop meal-gifts) gifts)
@@ -1247,7 +1241,7 @@
       ^-  live-send-message
       ::
       :*  error=~
-          remote-route
+          route
           total-fragments=(lent fragments)
           acked-fragments=0
           ::
@@ -1698,77 +1692,56 @@
   |=  pki-context
   ::  inner gate: process a meal, producing side effects and packets
   ::
-  |=  [now=@da eny=@ =meal]
+  |=  =message
   ::
-  |^  ^-  [gifts=(list gift) parts=(list partial-message-blob)]
+  |^  ^-  [gifts=(list gift) parts=(lest raw-packet-blob)]
       ::
-      =+  ^-  [gifts=(list gift) =encoding =message-blob]  generate-message
-      ::
-      [gifts (generate-fragments encoding message-blob)]
-  ::  +generate-fragments: split a message into packets
+      =/  =message-blob  (jam message)
+      =/  =message-nonce  (shaf %thug message-blob)
+      =/  fragments  (rip 13 message-blob)
+      =/  num-fragments=fragment-num  (lent fragments)
+      =|  =fragment-num
+      =/  packets
+        |-  ^-  (lest packet)
+        ?~  fragments
+          ~
+        :-  [message-nonce num-fragments fragment-num i.fragments]
+        $(fragments t.fragments, fragment-num +(fragment-num))
+      =+  ^-  [gifts=(list gift) packet-blobs=(list [encoding packet-blob])]
+        ?^  fast-key.pki-info
+          [~ (turn packets encode-packet-fast)]
+        ::  asymmetric encrypt; also produce symmetric key gift for upgrade
+        ::
+        ::    Generate a new symmetric key by hashing entropy, the date,
+        ::    and an insecure hash of :meal. We might want to change this to use
+        ::    a key derived using Diffie-Hellman.
+        ::
+        =/  new-symmetric-key=symmetric-key
+          (shaz :(mix (mug message-blob) now eny))
+        ::  expire the key in one month
+        ::  TODO: when should the key expire?
+        ::
+        :-  [%symmetric-key `@da`(add now ~m1) new-symmetric-key]~
+        (turn packets encode-packet-full)
+      =/  raw-packets
+        %+  turn  packet-blobs
+        |=  [=encoding =packet-blob]
+        [[her our] encoding packet-blob]
+      [gifts (turn raw-packets encode-raw-packet]
   ::
-  ++  generate-fragments
-    |=  [=encoding =message-blob]
-    ^-  (list partial-message-blob)
-    ::  total-fragments: number of packets for message
-    ::
-    ::    Each packet has max 2^13 bits so it fits in the MTU on most systems.
-    ::
-    =/  total-fragments=fragment-num  (met 13 message-blob)
-    ::  if message fits in one packet, don't fragment
-    ::
-    ?:  =(1 total-fragments)
-      :_  ~
-      ^-  partial-message-blob
-      ^-  @
-      (encode-raw-packet [our her] encoding message-blob)
-    ::  fragments: fragments generated from splitting message
-    ::
-    =/  fragments=(list @)  (rip 13 message-blob)
-    =/  fragment-index=fragment-num  0
-    ::  wrap each fragment in a %none encoding of a %carp meal
-    ::
-    |-  ^-  (list partial-message-blob)
-    ?~  fragments  ~
-    ::
-    :-  ^-  partial-message-blob
-        ^-  @
-        %^  encode-raw-packet  [our her]  %none
-        %-  jam
-        ^-  ^meal
-        :+  %carp
-          ^-  message-descriptor
-          [(get-message-id meal) (encoding-to-number encoding) total-fragments]
-        [fragment-index i.fragments]
-    ::
-    $(fragments t.fragments, fragment-index +(fragment-index))
-  ::  +generate-message: generate message from meal
+  ++  encode-packet-fast
+    |=  =packet
+    ^-  [%fast =packet-blob]
+    =/  packet-blob  (jam packet)
+    ?>  ?=(^ fast-key.pki-inf)
+    :-  %fast
+    %^  cat  7
+      key-hash.u.fast-key.pki-info
+    (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam meal))
   ::
-  ++  generate-message
-    ^-  [gifts=(list gift) =encoding =message-blob]
-    ::  if :meal is just a single fragment, don't bother double-encrypting it
-    ::
-    ?:  =(%carp -.meal)
-      [gifts=~ encoding=%none message-blob=(jam meal)]
-    ::  if this channel has a symmetric key, use it to encrypt
-    ::
-    ?^  fast-key.pki-info
-      :-  ~
-      :-  %fast
-      %^  cat  7
-        key-hash.u.fast-key.pki-info
-      (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam meal))
-    ::  asymmetric encrypt; also produce symmetric key gift for upgrade
-    ::
-    ::    Generate a new symmetric key by hashing entropy, the date,
-    ::    and an insecure hash of :meal. We might want to change this to use
-    ::    a key derived using Diffie-Hellman.
-    ::
-    =/  new-symmetric-key=symmetric-key  (shaz :(mix (mug meal) now eny))
-    ::  expire the key in one month
-    ::  TODO: when should the key expire?
-    ::
-    :-  [%symmetric-key `@da`(add now ~m1) new-symmetric-key]~
+  ++  encode-packet-full
+    |=  =packet
+    ^-  [%full =packet-blob]
     :-  %full
     %-  jam
     ::
@@ -1784,6 +1757,86 @@
     %+  seal:as:crypto-core
       (~(got by her-public-keys.pki-info) her-life.pki-info)
     (jam [new-symmetric-key (jam meal)])
+  ::
+  ::  ::  +generate-fragments: split a message into packets
+  ::  ::
+  ::  ++  generate-fragments
+  ::    |=  =message-blob
+  ::    ^-  (list partial-message-blob)
+  ::    ::  total-fragments: number of packets for message
+  ::    ::
+  ::    ::    Each packet has max 2^13 bits so it fits in the MTU on most systems.
+  ::    ::
+  ::    =/  total-fragments=fragment-num  (met 13 message-blob)
+  ::    ::  if message fits in one packet, don't fragment
+  ::    ::
+  ::    ?:  =(1 total-fragments)
+  ::      :_  ~
+  ::      ^-  partial-message-blob
+  ::      ^-  @
+  ::      (encode-raw-packet [our her] encoding message-blob)
+  ::    ::  fragments: fragments generated from splitting message
+  ::    ::
+  ::    =/  fragments=(list @)  (rip 13 message-blob)
+  ::    =/  fragment-index=fragment-num  0
+  ::    ::  wrap each fragment in a %none encoding of a %carp meal
+  ::    ::
+  ::    |-  ^-  (list partial-message-blob)
+  ::    ?~  fragments  ~
+  ::    ::
+  ::    :-  ^-  partial-message-blob
+  ::        ^-  @
+  ::        %^  encode-raw-packet  [our her]  %none
+  ::        %-  jam
+  ::        ^-  ^meal
+  ::        :+  %carp
+  ::          ^-  message-descriptor
+  ::          [(get-message-id meal) (encoding-to-number encoding) total-fragments]
+  ::        [fragment-index i.fragments]
+  ::    ::
+  ::    $(fragments t.fragments, fragment-index +(fragment-index))
+  ::  ::  +generate-message: generate message from meal
+  ::  ::
+  ::  ++  generate-message
+  ::    ^-  [gifts=(list gift) =encoding =message-blob]
+  ::    ::  if :meal is just a single fragment, don't bother double-encrypting it
+  ::    ::
+  ::    ?:  =(%carp -.meal)
+  ::      [gifts=~ encoding=%none message-blob=(jam meal)]
+  ::    ::  if this channel has a symmetric key, use it to encrypt
+  ::    ::
+  ::    ?^  fast-key.pki-info
+  ::      :-  ~
+  ::      :-  %fast
+  ::      %^  cat  7
+  ::        key-hash.u.fast-key.pki-info
+  ::      (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam meal))
+  ::    ::  asymmetric encrypt; also produce symmetric key gift for upgrade
+  ::    ::
+  ::    ::    Generate a new symmetric key by hashing entropy, the date,
+  ::    ::    and an insecure hash of :meal. We might want to change this to use
+  ::    ::    a key derived using Diffie-Hellman.
+  ::    ::
+  ::    =/  new-symmetric-key=symmetric-key  (shaz :(mix (mug meal) now eny))
+  ::    ::  expire the key in one month
+  ::    ::  TODO: when should the key expire?
+  ::    ::
+  ::    :-  [%symmetric-key `@da`(add now ~m1) new-symmetric-key]~
+  ::    :-  %full
+  ::    %-  jam
+  ::    ::
+  ::    ^-  full:packet-format
+  ::    ::  TODO: send our deed if we're a moon or comet
+  ::    ::
+  ::    :+  [to=her-life.pki-info from=our-life]  deed=~
+  ::    ::  encrypt the pair of [new-symmetric-key (jammed-meal)] for her eyes only
+  ::    ::
+  ::    ::    This sends the new symmetric key by piggy-backing it onto the
+  ::    ::    original message.
+  ::    ::
+  ::    %+  seal:as:crypto-core
+  ::      (~(got by her-public-keys.pki-info) her-life.pki-info)
+  ::    (jam [new-symmetric-key (jam meal)])
   --
 ::  |message-decoder: decode and assemble input packets into messages
 ::
@@ -1887,7 +1940,7 @@
             inbound-state
           ==
         ::
-        abet:(on-bond:assembler [remote-route payload]:meal)
+        abet:(on-bond:assembler [route payload]:meal)
       ::
           ::  %carp: we heard a message fragment; try to assemble into a message
           ::
@@ -2035,7 +2088,7 @@
         ~|  %ames-message-assembly-failed
         ?>  &(authenticated =([bone message-seq] message-id.meal))
         ::
-        (on-bond [remote-route payload]:meal)
+        (on-bond [route payload]:meal)
       ::
           %carp  ~|(%ames-meta-carp !!)
           %fore
