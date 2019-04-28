@@ -148,7 +148,7 @@
     =/  resolved  (flop moves)
     [resolved mo-context]
   ::
-  ::  +mo-boot: pass an %exec move to ford.
+  ::  +mo-boot: pass a %build move to ford.
   ::
   ++  mo-boot
     |=  [=dude =ship =desk]
@@ -633,7 +633,7 @@
     ^+  mo-state
     ::
     ?.  ?=([@ @ coke *] path)
-      ~&  [%mo-cook-bad-pax path]
+      ~&  [%mo-cook-bad-path path]
       !!
     ::
     =/  pap
@@ -852,13 +852,12 @@
     ::
     :: FIXME refactor this into something sane
     ::
-    |_  $:  $:  dap=dude
-                pry=prey
-                ost=bone
-                zip=(list cove)
-                dub=(list (each suss tang))
-            ==
-            seat
+    |_  $:  dap=dude
+            pry=prey
+            ost=bone
+            zip=(list cove)
+            dub=(list (each suss tang))
+            sat=seat
         ==
     ::
     ++  ap-state  .
@@ -869,6 +868,8 @@
       ~/  %ap-abed
       |=  [=dude =prey]
       ^+  ap-state
+      ::
+      :: =/  =seat  (~(got by bum.mas) dude) :: FIXME
       ::
       =:  dap   dude
           pry   prey
