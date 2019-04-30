@@ -231,14 +231,14 @@
   ==
 +$  inbound-state
   $:  last-acked=message-seq
-      live-messages=(map message-seq live-hear-message)
+      live-messages=(map message-nonce live-hear-message)
       pending-vane-ack=(unit [=message-seq =raw-packet-hash =lane])
       nacks=(map message-seq error)
   ==
 +$  live-hear-message
   $:  =encoding
       num-received=fragment-num
-      next-fragment=fragment-num
+      num-fragments=fragment-num
       fragments=(map fragment-num partial-message-blob)
   ==
 ::  +outbound-state: all data relevant to sending messages to a peer
@@ -401,28 +401,33 @@
       [%ix (expiring [port=@ud ipv4=@if])]
   ==
 ::
-::  Aspirational
+::  +lois: route; either galaxy or possibly indirect lane
 ::
-+$  lois                  [direct=? lane=*]
-+$  symmetric-key         @uvI
-+$  public-key            pass
-+$  private-key           ring
+::    Aspirational for now, but we hope to become agnostic to the
+::    transport layer that the interpreter uses. Possibilities include
+::    IPv4, IPv6, and I2P.
+::
++$  lois                  (each @pD [direct=? lane=*])
+::
++$  encoding              ?(%none %open %fast %full)
++$  error                 [tag=@tas =tang]
++$  fragment-index        [=message-seq =fragment-num]
++$  fragment-num          @udfragment
 +$  key-hash              @uvH
-+$  signature             @
++$  message-blob          @uwpacket  ::  XX  @uwmessage
 +$  message-descriptor    [=message-id encoding-num=@ num-fragments=@]
 +$  message-id            [=bone =message-seq]
++$  message-nonce         @uwmessagenonce
 +$  message-seq           @udmessage
-+$  fragment-num          @udfragment
-+$  fragment-index        [=message-seq =fragment-num]
-+$  raw-packet-hash       @uvH
-+$  error                 [tag=@tas =tang]
++$  packet-blob           @uwpacket
++$  partial-message-blob  @uwpartialmessage
++$  private-key           ring
++$  public-key            pass
 +$  raw-packet            [[to=ship from=ship] =encoding =packet-blob]
 +$  raw-packet-blob       @uwrawpacket
-+$  packet-blob           @uwpacket
-+$  message-blob          @uwpacket  ::  XX  @uwmessage
-+$  partial-message-blob  @uwpartialmessage
-+$  message-nonce         @uwmessagenonce
-+$  encoding              ?(%none %open %fast %full)
++$  raw-packet-hash       @uvH
++$  signature             @
++$  symmetric-key         @uvI
 ::  +expiring: a value that expires at the specified date
 ::
 +*  expiring  [value]  [expiration-date=@da value]
@@ -1671,9 +1676,9 @@
     ^-  pump-context
     [[gift gifts.ctx] state.ctx]
   --
-::  +encode-meal: generate a message and packets from a +meal, with effects
+::  +encode-message: generate packets from a +message, with effects
 ::
-++  encode-meal
+++  encode-message
   =>  |%
       ::  +gift: side effect
       ::
@@ -1695,21 +1700,35 @@
   |=  =message
   ::
   |^  ^-  [gifts=(list gift) parts=(lest raw-packet-blob)]
+      ::  :message-blob: get a bytestream from the message by serializing it
       ::
       =/  =message-blob  (jam message)
+      ::  message-nonce: hash (salted) message as on-the-wire message identifier
+      ::
       =/  =message-nonce  (shaf %thug message-blob)
-      =/  fragments  (rip 13 message-blob)
+      ::  split the message into a list of 1KB-sized :fragments to fit in MTU
+      ::
+      =/  fragments                   (rip 13 message-blob)
       =/  num-fragments=fragment-num  (lent fragments)
       =|  =fragment-num
+      ::
       =/  packets
-        |-  ^-  (lest packet)
+        |-  ^-  (list packet)
         ?~  fragments
           ~
         :-  [message-nonce num-fragments fragment-num i.fragments]
         $(fragments t.fragments, fragment-num +(fragment-num))
+      ::  encode packets into `(list packet-blob)` and maybe make symmetric key
+      ::
       =+  ^-  [gifts=(list gift) packet-blobs=(list [encoding packet-blob])]
+        ::  if we have a symmetric key, use it to encode the packets
+        ::
         ?^  fast-key.pki-info
           [~ (turn packets encode-packet-fast)]
+        ::  if we don't know their pubkey and life, send plaintext (%open)
+        ::
+        ?.  (~(has by her-public-keys.pki-info) her-life.pki-info)
+          [~ (turn packets encode-packet-open)]
         ::  asymmetric encrypt; also produce symmetric key gift for upgrade
         ::
         ::    Generate a new symmetric key by hashing entropy, the date,
@@ -1723,11 +1742,21 @@
         ::
         :-  [%symmetric-key `@da`(add now ~m1) new-symmetric-key]~
         (turn packets encode-packet-full)
-      =/  raw-packets
+      ::  encode raw packets into blobs according to their encodings
+      ::
+      =/  parts=(list raw-packet-blob)
         %+  turn  packet-blobs
         |=  [=encoding =packet-blob]
+        ^-  raw-packet-blob
+        ::
+        %-  encode-raw-packet
+        ^-  raw-packet
         [[her our] encoding packet-blob]
-      [gifts (turn raw-packets encode-raw-packet]
+      ::  ensure :parts has at least one item for +lest typechecking
+      ::
+      ?>  ?=(^ parts)
+      [gifts parts]
+  ::  +encode-packet-fast: symmetric-encrypt packet, prepending key hash
   ::
   ++  encode-packet-fast
     |=  =packet
@@ -1737,14 +1766,15 @@
     :-  %fast
     %^  cat  7
       key-hash.u.fast-key.pki-info
-    (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam meal))
+    (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam packet-blob))
+  ::  +encode-packet-full: asymmetric-encrypt packet and add new symmetric key
   ::
   ++  encode-packet-full
+    =/  her-public-key  (~(got by her-public-keys.pki-info) her-life.pki-info)
     |=  =packet
     ^-  [%full =packet-blob]
     :-  %full
     %-  jam
-    ::
     ^-  full:packet-format
     ::  TODO: send our deed if we're a moon or comet
     ::
@@ -1755,88 +1785,19 @@
     ::    original message.
     ::
     %+  seal:as:crypto-core
-      (~(got by her-public-keys.pki-info) her-life.pki-info)
-    (jam [new-symmetric-key (jam meal)])
+      her-public-key
+    (jam [new-symmetric-key (jam packet)])
+  ::  +encode-packet-open: sign packet and jam metadata and signature
   ::
-  ::  ::  +generate-fragments: split a message into packets
-  ::  ::
-  ::  ++  generate-fragments
-  ::    |=  =message-blob
-  ::    ^-  (list partial-message-blob)
-  ::    ::  total-fragments: number of packets for message
-  ::    ::
-  ::    ::    Each packet has max 2^13 bits so it fits in the MTU on most systems.
-  ::    ::
-  ::    =/  total-fragments=fragment-num  (met 13 message-blob)
-  ::    ::  if message fits in one packet, don't fragment
-  ::    ::
-  ::    ?:  =(1 total-fragments)
-  ::      :_  ~
-  ::      ^-  partial-message-blob
-  ::      ^-  @
-  ::      (encode-raw-packet [our her] encoding message-blob)
-  ::    ::  fragments: fragments generated from splitting message
-  ::    ::
-  ::    =/  fragments=(list @)  (rip 13 message-blob)
-  ::    =/  fragment-index=fragment-num  0
-  ::    ::  wrap each fragment in a %none encoding of a %carp meal
-  ::    ::
-  ::    |-  ^-  (list partial-message-blob)
-  ::    ?~  fragments  ~
-  ::    ::
-  ::    :-  ^-  partial-message-blob
-  ::        ^-  @
-  ::        %^  encode-raw-packet  [our her]  %none
-  ::        %-  jam
-  ::        ^-  ^meal
-  ::        :+  %carp
-  ::          ^-  message-descriptor
-  ::          [(get-message-id meal) (encoding-to-number encoding) total-fragments]
-  ::        [fragment-index i.fragments]
-  ::    ::
-  ::    $(fragments t.fragments, fragment-index +(fragment-index))
-  ::  ::  +generate-message: generate message from meal
-  ::  ::
-  ::  ++  generate-message
-  ::    ^-  [gifts=(list gift) =encoding =message-blob]
-  ::    ::  if :meal is just a single fragment, don't bother double-encrypting it
-  ::    ::
-  ::    ?:  =(%carp -.meal)
-  ::      [gifts=~ encoding=%none message-blob=(jam meal)]
-  ::    ::  if this channel has a symmetric key, use it to encrypt
-  ::    ::
-  ::    ?^  fast-key.pki-info
-  ::      :-  ~
-  ::      :-  %fast
-  ::      %^  cat  7
-  ::        key-hash.u.fast-key.pki-info
-  ::      (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam meal))
-  ::    ::  asymmetric encrypt; also produce symmetric key gift for upgrade
-  ::    ::
-  ::    ::    Generate a new symmetric key by hashing entropy, the date,
-  ::    ::    and an insecure hash of :meal. We might want to change this to use
-  ::    ::    a key derived using Diffie-Hellman.
-  ::    ::
-  ::    =/  new-symmetric-key=symmetric-key  (shaz :(mix (mug meal) now eny))
-  ::    ::  expire the key in one month
-  ::    ::  TODO: when should the key expire?
-  ::    ::
-  ::    :-  [%symmetric-key `@da`(add now ~m1) new-symmetric-key]~
-  ::    :-  %full
-  ::    %-  jam
-  ::    ::
-  ::    ^-  full:packet-format
-  ::    ::  TODO: send our deed if we're a moon or comet
-  ::    ::
-  ::    :+  [to=her-life.pki-info from=our-life]  deed=~
-  ::    ::  encrypt the pair of [new-symmetric-key (jammed-meal)] for her eyes only
-  ::    ::
-  ::    ::    This sends the new symmetric key by piggy-backing it onto the
-  ::    ::    original message.
-  ::    ::
-  ::    %+  seal:as:crypto-core
-  ::      (~(got by her-public-keys.pki-info) her-life.pki-info)
-  ::    (jam [new-symmetric-key (jam meal)])
+  ++  encode-packet-open
+    |=  =packet
+    ^-  [%open =packet-blob]
+    :-  %open
+    %-  jam
+    ^-  open:packet-format
+    :+  from=our-life
+      deed=~
+    (sign:as:crypto-core (jam packet))
   --
 ::  |message-decoder: decode and assemble input packets into messages
 ::
@@ -1874,14 +1835,14 @@
   ::
   ++  decode-packet
     |=  [=encoding =packet-blob]
-    ^-  [[authenticated=? =meal] _decoder-core]
+    ^-  [[authenticated=? =message] _decoder-core]
     ::
-    =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =meal]
+    =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =message]
         ::
         %-  (interpret-packet her crypto-core pki-info)
         [encoding packet-blob]
     ::
-    :-  [authenticated meal]
+    :-  [authenticated message]
     |-  ^+  decoder-core
     ::
     ?~  gifts  decoder-core
@@ -1909,13 +1870,61 @@
       ::
       abet:(on-message-completed:assembler error.task)
     ::
+        ::  TODO: finish
+        ::
         %hear
       =^  decoded  decoder-core  (decode-packet [encoding packet-blob]:task)
       ::
       =?  decoder-core  authenticated.decoded  (give %rout lane.task)
       ::
-      =/  =meal  meal.decoded
-      ?-    -.meal
+      =/  =packet  packet.decoded
+      ::  is this packet just a partial message?
+      ::
+      ?.  |(=(1 num-fragments) =(+(fragment-num) num-fragments)):packet
+        ::
+        =/  existing-message=(unit live-hear-message)
+          (~(get by live-messages.inbound-state) message-nonce.packet)
+        ::  check all message params match if we have an :existing-message
+        ::
+        =?  .  !=(~ existing-message)
+          ?>  =(encoding.live-hear-message encoding.packet)
+          ?>  (gth num-fragments.live-hear-message fragment-num.packet)
+          ?>  =(num-fragments.live-hear-message num-fragments.packet)
+          .
+        ::  create a default :live-hear-message if this is the first fragment
+        ::
+        =/  =live-hear-message
+          %+  fall  existing
+          :*  encoding.packet
+              num-received=0
+              num-fragments=num-fragments.packet
+              fragments=~
+          ==
+        ::  always ack a dupe!
+        ::
+        ?:  (~(has by fragments.live-hear-message) fragment-num)
+          ::  TODO create assembler-core or refactor
+          ::
+          give-duplicate-ack
+        ::  register this fragment in the state and send packet ack
+        ::
+        =.  num-received.live-hear-message  +(num-received.live-hear-message)
+        ::
+        =.  fragments.live-hear-message
+          %-  ~(put by fragments.live-hear-message)
+          [fragment-num partial-message-blob]
+        ::  we might not need to ack %fore or %back packets, but do it anyway
+        ::
+        ::    If we're receiving a %bond, then we do need to ack.
+        ::
+        (give-ack ~)
+      ::  sanity-check
+      ::
+      ?<  =(0 num-fragments.packet)
+      ::  this packet completes a message
+      ::  TODO redo this part
+      ::
+      ?-    -.packet
           ::  %back: we heard an ack; emit an ack move internally
           ::
           %back
@@ -2047,12 +2056,12 @@
       ::
       =/  =live-hear-message
         %+  fall  (~(get by live-messages.inbound-state) message-seq)
-        [encoding num-received=0 next-fragment=count fragments=~]
+        [encoding num-received=0 num-fragments=count fragments=~]
       ::  all fragments must agree on the message parameters
       ::
       ?>  =(encoding.live-hear-message encoding)
-      ?>  (gth next-fragment.live-hear-message fragment-num)
-      ?>  =(next-fragment.live-hear-message count)
+      ?>  (gth num-fragments.live-hear-message fragment-num)
+      ?>  =(num-fragments.live-hear-message count)
       ::
       ?:  (~(has by fragments.live-hear-message) fragment-num)
         give-duplicate-ack
@@ -2060,18 +2069,20 @@
       ::
       =.  num-received.live-hear-message  +(num-received.live-hear-message)
       =.  fragments.live-hear-message
-        (~(put by fragments.live-hear-message) fragment-num partial-message-blob)
+        %-  ~(put by fragments.live-hear-message)
+        [fragment-num partial-message-blob]
       ::  if we haven't received all fragments, update state and ack packet
       ::
-      ?.  =(num-received next-fragment):live-hear-message
+      ?.  =(num-received num-fragments):live-hear-message
         =.  fragments.live-hear-message
-          (~(put by fragments.live-hear-message) fragment-num partial-message-blob)
+          %-  ~(put by fragments.live-hear-message)
+          [fragment-num partial-message-blob]
         ::
         (give-ack ~)
       ::  assemble and decode complete message
       ::
       =/  =message-blob
-        (assemble-fragments [next-fragment fragments]:live-hear-message)
+        (assemble-fragments [num-fragments fragments]:live-hear-message)
       ::
       =^  decoded  decoder-core  (decode-packet encoding message-blob)
       ::
@@ -2100,13 +2111,13 @@
       =|  index=fragment-num
       =|  sorted-fragments=(list partial-message-blob)
       ::
-      |=  $:  next-fragment=fragment-num
+      |=  $:  num-fragments=fragment-num
               fragments=(map fragment-num partial-message-blob)
           ==
       ^-  message-blob
       ::  final packet; concatenate fragment buffers
       ::
-      ?:  =(next-fragment index)
+      ?:  =(num-fragments index)
         %+  can  13
         %+  turn  (flop sorted-fragments)
         |=(a=@ [1 a])
@@ -2138,7 +2149,7 @@
   ::  inner gate: decode a packet
   ::
   |=  [=encoding =packet-blob]
-  ^-  [gifts=(list gift) authenticated=? =meal]
+  ^-  [gifts=(list gift) authenticated=? =packet]
   ::
   =|  gifts=(list gift)
   ::
@@ -2151,13 +2162,13 @@
   ::  +decode-none: decode an unsigned, unencrypted packet
   ::
   ++  decode-none
-    ^-  [gifts=(list gift) authenticated=? =meal]
+    ^-  [gifts=(list gift) authenticated=? =packet]
     ::
-    (produce-meal authenticated=%.n packet-blob)
+    (produce-packet authenticated=%.n packet-blob)
   ::  +decode-open: decode a signed, unencrypted packet
   ::
   ++  decode-open
-    ^-  [gifts=(list gift) authenticated=? =meal]
+    ^-  [gifts=(list gift) authenticated=? =packet]
     ::
     =/  packet-noun  (cue packet-blob)
     =/  open-packet  (open:packet-format packet-noun)
@@ -2173,13 +2184,13 @@
     =/  her-public-key
       (~(got by her-public-keys.pki-info) her-life.pki-info)
     ::
-    %+  produce-meal  authenticated=%.y
+    %+  produce-packet  authenticated=%.y
     %-  need
     (extract-signed her-public-key signed-payload.open-packet)
   ::  +decode-fast: decode a packet with symmetric encryption
   ::
   ++  decode-fast
-    ^-  [gifts=(list gift) authenticated=? =meal]
+    ^-  [gifts=(list gift) authenticated=? =packet]
     ::
     ?~  fast-key.pki-info
       ~|  %ames-no-fast-key^her  !!
@@ -2190,13 +2201,13 @@
     ~|  [%ames-bad-fast-key `@ux`key-hash `@ux`key-hash.u.fast-key.pki-info]
     ?>  =(key-hash key-hash.u.fast-key.pki-info)
     ::
-    %+  produce-meal  authenticated=%.y
+    %+  produce-packet  authenticated=%.y
     %-  need
     (de:crub:crypto symmetric-key.key.u.fast-key.pki-info payload)
   ::  +decode-full: decode a packet with asymmetric encryption
   ::
   ++  decode-full
-    ^-  [gifts=(list gift) authenticated=? =meal]
+    ^-  [gifts=(list gift) authenticated=? =packet]
     ::
     =/  packet-noun  (cue packet-blob)
     =/  full-packet  (full:packet-format packet-noun)
@@ -2206,11 +2217,14 @@
       (apply-deed u.deed.full-packet)
     ::  TODO: is this assertion valid if we hear a new deed?
     ::
-    ~|  [%ames-life-mismatch her her-life.pki-info from-life.full-packet]
-    ?>  =(her-life.pki-info from-life.full-packet)
+    ?.  =(her-life.pki-info from-life.full-packet)
+      ~|  [%ames-life-mismatch her her-life.pki-info from-life.full-packet]
+      !!
     ::
     =/  her-public-key
+      ~|  [%ames-pubkey-missing her her-life.pki-info from-life.full-packet]
       (~(got by her-public-keys.pki-info) her-life.pki-info)
+    ::
     =/  jammed-wrapped=@
       %-  need
       (tear:as:crypto-core her-public-key encrypted-payload.full-packet)
@@ -2221,7 +2235,7 @@
     =.  decoder-core  (give %symmetric-key symmetric-key)
     =.  decoder-core  (give %meet her her-life.pki-info her-public-key)
     ::
-    (produce-meal authenticated=%.y jammed-packet)
+    (produce-packet authenticated=%.y jammed-packet)
   ::  +apply-deed: produce a %meet gift if the deed checks out
   ::
   ++  apply-deed
@@ -2261,15 +2275,15 @@
   ::  +give: emit +gift effect, to be flopped later
   ::
   ++  give  |=(=gift decoder-core(gifts [gift gifts]))
-  ::  +produce-meal: exit this core with a +meal +cue'd from :meal-precursor
+  ::  +produce-packet: exit with a +packet +cue'd from :packet-precursor
   ::
-  ++  produce-meal
-    |=  [authenticated=? meal-precursor=@]
-    ^-  [gifts=(list gift) authenticated=? =meal]
+  ++  produce-packet
+    |=  [authenticated=? packet-precursor=@]
+    ^-  [gifts=(list gift) authenticated=? =packet]
     ::
     :+  (flop gifts)  authenticated
-    %-  meal
-    (cue meal-precursor)
+    %-  packet
+    (cue packet-precursor)
   ::
   ++  decoder-core  .
   --
