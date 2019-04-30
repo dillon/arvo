@@ -867,28 +867,34 @@
       |=  [=dude =prey]
       ^+  ap-state
       ::
-      :: =/  =seat  (~(got by bum.mas) dude) :: FIXME
+      =/  =seat
+        =/  sitting  (~(got by bum.mas) dude)
+        =/  =stic
+          =/  stat  tyc.sitting
+          =/  nact  +(act.stat)
+          =/  trop  (shaz (mix (add dude nact) eny))
+          [act=nact eny=trop lat=now]
+        sitting(tyc stic)
       ::
-      =:  dap   dude
-          pry   prey
-          sat  `seat`(~(got by bum.mas) dude) :: FIXME lark
-      ==
+      =/  bone  p.zam.seat
+      =/  bone-duct  q.zam.seat
+      =/  duct-bone  r.zam.seat
       ::
-      =/  unt  (~(get by q.zam.sat) hen)
+      =/  maybe-bone  (~(get by bone-duct) hen)
       ::
-      =:  act.tyc.sat  +(act.tyc.sat)
-          eny.tyc.sat  (shaz (mix (add dude act.tyc.sat) eny))
-          lat.tyc.sat  now
-      ==
+      ?^  maybe-bone
+        =/  bone  u.maybe-bone
+        ap-state(dap dude, pry prey, sat seat, ost bone)
       ::
-      ?^  unt
-        ap-state(ost u.unt)
+      =/  =scar
+        =/  bone  +(bone)
+        =/  bone-duct  (~(put by bone-duct) hen bone)
+        =/  duct-bone  (~(put by duct-bone) bone hen)
+        [p=bone q=bone-duct r=duct-bone]
       ::
       %=  ap-state
-        ost      p.zam.sat
-        p.zam.sat    +(p.zam.sat)
-        q.zam.sat    (~(put by q.zam.sat) hen p.zam.sat)
-        r.zam.sat    (~(put by r.zam.sat) p.zam.sat hen)
+        ost      bone
+        zam.sat  scar
       ==
     ::
     ::  +ap-abet: resolve moves.
