@@ -948,32 +948,46 @@
     ::
     ++  ap-aver
       ~/  %ap-aver
-      |=  cov=cove
+      |=  =cove
       ^-  move
       ::
-      :-  (~(got by r.zam.sat) p.cov)
-      ?-    -.q.cov
-          ?(%slip %sick)  !!
+      :-  (~(got by r.zam.sat) p.cove)
+      ?-    -.q.cove
+          ::
+          %slip  !!
+          ::
+          %sick  !!
+          ::
           %give
-        ?<  =(0 p.cov)
-        ?.  ?=(%diff -.p.q.cov)
-          [%give %unto p.q.cov]
+          ::
+        ?<  =(0 p.cove)
+        ?.  ?=(%diff -.p.q.cove)
+          [%give %unto p.q.cove]
         ::
-        =/  cay=cage  p.p.q.cov
-        =/  mar  (fall (~(get by pyl.sat) p.cov) p.cay)
+        =/  =cage  p.p.q.cove
+        =/  =mark  (fall (~(get by pyl.sat) p.cove) p.cage)
         ::
-        ?:  =(mar p.cay)  [%give %unto p.q.cov]
-        :+  %pass
-          [%sys %pel dap ~]
-        [%f %build live=%.n [%cast [p q]:(mo-beak dap) mar [%$ cay]]]
-      ::
+        ?:  =(mark p.cage)
+          [%give %unto p.q.cove]
+        ::
+        =/  =path  /sys/pel/[dap]
+        =/  =schematic:ford
+          =/  =beak  (mo-beak dap)
+          [%cast [p q]:beak mark [%$ cage]]
+        ::
+        =/  =note-arvo  [%f %build live=%.n schematic]
+        [%pass path note-arvo]
+          ::
           %pass
-        :+  %pass  `path`[%use dap p.q.cov]
-        ?-  -.q.q.cov
-          %hiss  `note-arvo`[%e %hiss +.q.q.cov]
-          %send  `note-arvo`[%g %deal [our p.q.q.cov] q.q.q.cov]
-          %meta  `note-arvo`[`@tas`p.q.q.cov %meta `vase`q.q.q.cov]
-        ==
+          ::
+        =/  =path  [%use dap p.q.cove]
+        =/  =note-arvo
+          ?-  -.q.q.cove
+            %hiss  [%e %hiss +.q.q.cove]
+            %send  [%g %deal [our p.q.q.cove] q.q.q.cove]
+            %meta  [`@tas`p.q.q.cove %meta `vase`q.q.q.cove]
+          ==
+        [%pass path note-arvo]
       ==
     ::
     ::  +ap-avid: onto results.
