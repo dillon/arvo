@@ -913,24 +913,35 @@
     ++  ap-abut
       ^+  ap-state
       ::
-      =+  [pyz=zip ful=*(set bone)]
-      |-
-      ^+  ap-state
-      ?^  pyz
-        ?.  ?=([%give %diff *] q.i.pyz)
-          $(pyz t.pyz)
-        =^  vad  ap-state  ap-fill(ost p.i.pyz)
-        $(pyz t.pyz, ful ?:(vad ful (~(put in ful) p.i.pyz)))
+      =/  coves  zip
+      =/  bones  *(set bone)
       ::
-      =/  ded  ~(tap in ful)
-      |-
-      ^+  ap-state
-      ?~  ded  ap-state
-      =>  %*(. $(ded t.ded) ost i.ded)
+      |-  ^+  ap-state
+      ?^  coves
+        ?.  ?=([%give %diff *] q.i.coves)
+          $(coves t.coves)
+        ::
+        =^  added  ap-state  ap-fill(ost p.i.coves)
+        ::
+        =/  ribs
+          ?:  added
+            bones
+          (~(put in bones) p.i.coves)
+        ::
+        $(coves t.coves, bones ribs)
+      ::
+      =/  boned  ~(tap in bones)
+      ::
+      |-  ^+  ap-state
+      ?~  boned
+        ap-state
+      =>  %*(. $(boned t.boned) ost i.boned) :: FIXME
       ::
       =/  tib  (~(get by sup.ged.sat) ost)
       ::
-      ?~  tib  ~&([%ap-abut-bad-bone dap ost] ..ap-kill)
+      ?~  tib
+        ~&  [%ap-abut-bad-bone dap ost]
+        ..ap-kill
       ap-kill(q.q.pry p.u.tib)
     ::
     ::  +ap-aver: cove to move.
