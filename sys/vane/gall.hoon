@@ -266,9 +266,9 @@
     ::
     =/  =scar
       =/  bone  1
-      =/  bone-by-duct  [[[~ ~] 0] ~ ~]
-      =/  duct-by-bone  [[0 [~ ~]] ~ ~]
-      [p=bone q=bone-by-duct r=duct-by-bone]
+      =/  bone-duct  [[[~ ~] 0] ~ ~]
+      =/  duct-bone  [[0 [~ ~]] ~ ~]
+      [p=bone q=bone-duct r=duct-bone]
     ::
     =/  new-seat
       %_  seat
@@ -850,8 +850,6 @@
   ++  ap
     ~%  %gall-ap  +>  ~
     ::
-    :: FIXME refactor this into something sane
-    ::
     |_  $:  dap=dude
             pry=prey
             ost=bone
@@ -862,7 +860,7 @@
     ::
     ++  ap-state  .
     ::
-    ::  +ap-abed: initialise.
+    ::  +ap-abed: initialise the provided app with the supplied privilege.
     ::
     ++  ap-abed
       ~/  %ap-abed
