@@ -44,15 +44,20 @@
     ^-  http-event:http
     [%start [200 ['content-type' 'text/html']~] [~ oct-html] %.y]
   ::
+  ++  manx-response
+    |=  man=manx
+    ^-  http-event:http
+    [%start [200 ['content-type' 'text/html']~] [~ (manx-to-octs man)] %.y]
+  ::
   ++  js-response
     |=  oct-js=octs
     ^-  http-event:http
     [%start [200 ['content-type' 'application/js']~] [~ oct-js] %.y]
   ::
   ++  json-response
-    |=  oct-js=octs
+    |=  jon=json
     ^-  http-event:http
-    [%start [200 ['content-type' 'application/json']~] [~ oct-js] %.y]
+    [%start [200 ['content-type' 'application/json']~] [~ (json-to-octs jon)] %.y]
   ::
   ++  css-response
     |=  oct-css=octs
