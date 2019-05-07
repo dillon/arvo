@@ -217,6 +217,8 @@
       =message-nonce
       lane=(unit lane)
       =bone-manager
+      live-hear-messages=(map message-nonce live-hear-message)
+      live-sent-packets=(map raw-packet-hash message-id)
       inbound=(map bone inbound-state)
       outbound=(map bone outbound-state)
   ==
@@ -231,7 +233,6 @@
   ==
 +$  inbound-state
   $:  last-acked=message-seq
-      live-messages=(map message-nonce live-hear-message)
       pending-vane-ack=(unit [=message-seq =raw-packet-hash =lane])
       nacks=(map message-seq error)
   ==
@@ -337,8 +338,9 @@
       ::    packet-hash: hash of acknowledged contents
       ::    error: non-null iff nack (negative acknowledgment)
       ::    lag: computation time, for use in congestion control
+      ::    XX doc
       ::
-      [%back =bone =raw-packet-hash error=(unit error) lag=@dr]
+      [%back =raw-packet-hash lag=@dr done=(unit [=bone error=(unit error)])]
       ::  %bond: full message
       ::
       ::    message-id: pair of flow id and message sequence number
