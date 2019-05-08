@@ -214,13 +214,11 @@
   ==
 +$  peer-state
   $:  =pki-info
-      =message-nonce
       lane=(unit lane)
       =bone-manager
-      live-hear-messages=(map message-nonce live-hear-message)
-      live-sent-packets=(map raw-packet-hash message-id)
       inbound=(map bone inbound-state)
       outbound=(map bone outbound-state)
+      =nax-state
   ==
 +$  bone-manager
   $:  next=bone
@@ -231,8 +229,18 @@
   $:  inbound-packets=(list [=lane =raw-packet-hash =raw-packet])
       outbound-messages=(list [=duct route=path payload=*])
   ==
+::  +nax-state:  all data relevant to collecting naxplanations
+::
+::    nax:  nacks we've heard about without explanation
+::    naxplanations:  explanations we've heard without the original nack
+::
++$  nax-state
+  $:  nax=(map [message-id fragment-num] duct)
+      naxplanations=(map [message-id fragment-num] ares)
+  ==
 +$  inbound-state
   $:  last-acked=message-seq
+      live-hear-messages=(unit live-hear-message)
       pending-vane-ack=(unit [=message-seq =raw-packet-hash =lane])
       nacks=(map message-seq error)
   ==
@@ -325,13 +333,6 @@
 ::    message-nonce: id for lest of packets.  Equal to (shaf %thug message-blob)
 ::
 +$  packet
-    $:  =message-nonce
-        num-fragments=fragment-num
-        =fragment-num
-        =partial-message-blob
-    ==
-::
-+$  message
   $%  ::  %back: acknowledgment
       ::
       ::    bone: opaque flow identifier
@@ -340,14 +341,16 @@
       ::    lag: computation time, for use in congestion control
       ::    XX doc
       ::
-      [%back =raw-packet-hash lag=@dr done=(unit [=bone error=(unit error)])]
-      ::  %bond: full message
+      [%back =message-id =fragment-num good=? lag=@dr]
       ::
-      ::    message-id: pair of flow id and message sequence number
-      ::    route: intended recipient module on receiving ship
-      ::    payload: noun payload
+      ::    XX doc
       ::
-      [%bond =message-id route=path payload=*]
+      $:  %bond
+          =message-id
+          =fragment-num
+          num-fragments=fragment-num
+          =partial-message-blob
+      ==
       ::  %fore: forwarded packet
       ::
       ::    ship: destination ship, to be forwarded to
@@ -355,8 +358,9 @@
       ::    raw-packet-blob: the wrapped packet, to be sent to :ship
       ::
       [%fore =ship lane=(unit lane) =raw-packet-blob]
-  ==
-:: XX  [%carp =message-descriptor =fragment-num =partial-message-blob]
+    ==
+::
++$  message  [=message-id route=path payload=*]
 ::
 ::  +pki-context: context for messaging between :our and peer
 ::
