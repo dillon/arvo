@@ -1880,22 +1880,21 @@
     ?-    -.task
         %done
       =/  =inbound-state  (~(got by bone-states) bone.task)
-      =/  to-apply  (need pending-vane-ack.inbound-state)
       ::
-      =/  assembler
-        %-  message-assembler  :*
-          bone.task
-          message-seq.to-apply
-          authenticated=%.y
-          raw-packet-hash.to-apply
-          lane.to-apply
-          inbound-state
-        ==
+      =.  last-acked.inbound-state  +(last-acked.inbound-state)
       ::
-      abet:(on-message-completed:assembler error.task)
+      =^  top=[=message-seq =lane =message]  pending-vane-ack.inbound-state
+        ~(get to pending-vane-ack.inbound-state)
+      ::
+      =/  ok=?  =(~ error.task)
+      ::
+      =?  nacks.inbound-state  !ok  (~(put in nacks.inbound-state) message-seq)
+      ::
+      =.  decoder-core  (give %sack [bone message-seq] %message ok lag=`@dr`0)
+      ::  TODO: send nacksplanation message here, or should |main do that?
+      ::
+      decoder-core
     ::
-        ::  TODO: finish
-        ::
         %hear
       =^  decoded  decoder-core  (decode-packet [encoding packet-blob]:task)
       =+  [packet secure]=decoded
