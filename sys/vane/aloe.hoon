@@ -214,7 +214,6 @@
   ==
 +$  peer-state
   $:  =pki-info
-      =message-nonce
       lane=(unit lane)
       =bone-manager
       inbound=(map bone inbound-state)
@@ -229,15 +228,36 @@
   $:  inbound-packets=(list [=lane =raw-packet-hash =raw-packet])
       outbound-messages=(list [=duct route=path payload=*])
   ==
+::  +inbound-state: per-bone receive state
+::
+::    We only listen for packets from a single message at a time. This is the
+::    :live-message. As soon as we finish receiving all packets for this
+::    message, we increment :last-heard. If there is no :pending-vane-ack, we
+::    relay the message to our local client vane for processing.
+::
+::    When the vane acks the message, we increment :last-acked,
+::    ack the last packet we received from that message, and
+::    clear :pending-vane-ack. If another message has been completely received,
+::    we clear it from :live-message, relay it to the local client vane, and
+::    set it as :pending-vane-ack.
+::
+::    last-acked: last message acked by local client vane
+::    last-heard: last message we've completely received
+::    pending-vane-ack: message waiting on ack from local client vane
+::    live-message: partially received message
+::    nacks: messages we've nacked but whose nacksplanations have not been acked
+::
 +$  inbound-state
   $:  last-acked=message-seq
-      live-messages=(map message-nonce live-hear-message)
-      pending-vane-ack=(unit [=message-seq =raw-packet-hash =lane])
-      nacks=(map message-seq error)
+      last-heard=message-seq
+      pending-vane-ack=(qeu [=message-seq =lane =message])
+      live-messages=(map message-seq live-hear-message)
+      nacks=(set message-seq)
   ==
+::  +live-hear-message: partially received message
+::
 +$  live-hear-message
-  $:  =encoding
-      num-received=fragment-num
+  $:  num-received=fragment-num
       num-fragments=fragment-num
       fragments=(map fragment-num partial-message-blob)
   ==
@@ -319,33 +339,42 @@
 ::
 ::  XX move crypto to packet-blob -> packet decoder
 ::
-::  +packet: individual packet, part of a message
+::  +message: application-level message
 ::
-::    message-nonce: id for lest of packets.  Equal to (shaf %thug message-blob)
+::    route: where in the recipient this message should go
+::    payload: noun contents of message
+::
++$  message  [route=path payload=*]
+::  +packet: format of decoded packet  TODO better layer docs
 ::
 +$  packet
-    $:  =message-nonce
-        num-fragments=fragment-num
-        =fragment-num
-        =partial-message-blob
-    ==
-::
-+$  message
-  $%  ::  %back: acknowledgment
+  $%  ::  %back: acknowledgment of a packet (positive or negative)
       ::
-      ::    bone: opaque flow identifier
-      ::    packet-hash: hash of acknowledged contents
-      ::    error: non-null iff nack (negative acknowledgment)
-      ::    lag: computation time, for use in congestion control
+      ::    message-id: id of message containing acknowledged packet
+      ::    payload: body of data in acknowledgment
+      ::    fragment-num.payload: index of acknowledged packet within message
+      ::    ok.payload: %.y for positive ack, %.n for nack if message failed
+      ::    lag.payload: reported computation time (currently unused)
       ::
-      [%back =bone =raw-packet-hash error=(unit error) lag=@dr]
-      ::  %bond: full message
+      $:  %back
+          =message-id
+          $=  payload
+          $%  [%fragment =fragment-num]
+              [%message ok=? lag=@dr]
+      ==  ==
+      ::  %bond: message fragment
       ::
-      ::    message-id: pair of flow id and message sequence number
-      ::    route: intended recipient module on receiving ship
-      ::    payload: noun payload
+      ::    message-id: pair of flow id (+bone) and message sequence number
+      ::    fragment-num: index of packet within message
+      ::    num-fragments: how many total fragments in this message
+      ::    partial-message-blob: fragment of jammed message
       ::
-      [%bond =message-id route=path payload=*]
+      $:  %bond
+          =message-id
+          =fragment-num
+          num-fragments=fragment-num
+          =partial-message-blob
+      ==
       ::  %fore: forwarded packet
       ::
       ::    ship: destination ship, to be forwarded to
@@ -354,8 +383,6 @@
       ::
       [%fore =ship lane=(unit lane) =raw-packet-blob]
   ==
-:: XX  [%carp =message-descriptor =fragment-num =partial-message-blob]
-::
 ::  +pki-context: context for messaging between :our and peer
 ::
 +$  pki-context  [our=ship =our=life crypto-core=acru:ames her=ship =pki-info]
@@ -1801,19 +1828,16 @@
   --
 ::  |message-decoder: decode and assemble input packets into messages
 ::
-::    Manages messages and packets which haven't been sent over the wire
-::    yet.  Passes to +pump to send packets over the wire.
-::
 ++  message-decoder
   =>  |%
       +$  gift
         $%  [%fore =ship =lane =raw-packet-blob]
-            [%have =bone route=path payload=*]
+            [%have =bone =message]
             [%symmetric-key =symmetric-key]
             [%meet =ship =life =public-key]
-            [%rack =bone =raw-packet-hash error=(unit error)]
+            [%rack =message-id =fragment-num ok=? lag=@dr]
             [%rout =lane]
-            [%sack =bone =raw-packet-hash error=(unit error)]
+            [%sack =message-id =fragment-num ok=? lag=@dr]
         ==
       +$  task
         $%  [%done =bone error=(unit error)]
@@ -1835,14 +1859,14 @@
   ::
   ++  decode-packet
     |=  [=encoding =packet-blob]
-    ^-  [[authenticated=? =message] _decoder-core]
+    ^-  [[authenticated=? =packet] _decoder-core]
     ::
-    =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =message]
+    =+  ^-  [gifts=(list gift:interpret-packet) authenticated=? =packet]
         ::
         %-  (interpret-packet her crypto-core pki-info)
         [encoding packet-blob]
     ::
-    :-  [authenticated message]
+    :-  [authenticated packet]
     |-  ^+  decoder-core
     ::
     ?~  gifts  decoder-core
@@ -1874,120 +1898,166 @@
         ::
         %hear
       =^  decoded  decoder-core  (decode-packet [encoding packet-blob]:task)
+      =+  [packet secure]=decoded
+      ::  TODO document this effect
       ::
-      =?  decoder-core  authenticated.decoded  (give %rout lane.task)
-      ::
-      =/  =packet  packet.decoded
-      ::  is this packet just a partial message?
-      ::
-      ?.  |(=(1 num-fragments) =(+(fragment-num) num-fragments)):packet
-        ::
-        =/  existing-message=(unit live-hear-message)
-          (~(get by live-messages.inbound-state) message-nonce.packet)
-        ::  check all message params match if we have an :existing-message
-        ::
-        =?  .  !=(~ existing-message)
-          ?>  =(encoding.live-hear-message encoding.packet)
-          ?>  (gth num-fragments.live-hear-message fragment-num.packet)
-          ?>  =(num-fragments.live-hear-message num-fragments.packet)
-          .
-        ::  create a default :live-hear-message if this is the first fragment
-        ::
-        =/  =live-hear-message
-          %+  fall  existing
-          :*  encoding.packet
-              num-received=0
-              num-fragments=num-fragments.packet
-              fragments=~
-          ==
-        ::  always ack a dupe!
-        ::
-        ?:  (~(has by fragments.live-hear-message) fragment-num)
-          ::  TODO create assembler-core or refactor
-          ::
-          give-duplicate-ack
-        ::  register this fragment in the state and send packet ack
-        ::
-        =.  num-received.live-hear-message  +(num-received.live-hear-message)
-        ::
-        =.  fragments.live-hear-message
-          %-  ~(put by fragments.live-hear-message)
-          [fragment-num partial-message-blob]
-        ::  we might not need to ack %fore or %back packets, but do it anyway
-        ::
-        ::    If we're receiving a %bond, then we do need to ack.
-        ::
-        (give-ack ~)
-      ::  sanity-check
-      ::
-      ?<  =(0 num-fragments.packet)
-      ::  this packet completes a message
-      ::  TODO redo this part
+      =?  decoder-core  secure  (give %rout lane.task)
       ::
       ?-    -.packet
-          ::  %back: we heard an ack; emit an ack move internally
-          ::
           %back
-        ~|  %unauthenticated-ack-from^her
-        ?>  authenticated.decoded
-        (give %rack [bone raw-packet-hash error]:meal)
+        ?.  secure
+          ~|  %ames-insecure-ack-from^her  !!
+        (give %rack [message-id fragment-num ok]:packet)
       ::
-          ::  %bond: we heard a full-message packet; assemble and process it
-          ::
           %bond
-        =/  =inbound-state
-          %-  fall  :_  *inbound-state
-          (~(get by bone-states) bone.message-id.meal)
-        ::
-        =/  assembler
-          %-  message-assembler  :*
-            bone.message-id.meal
-            message-seq.message-id.meal
-            authenticated.decoded
-            raw-packet-hash.task
-            lane.task
-            inbound-state
-          ==
-        ::
-        abet:(on-bond:assembler [route payload]:meal)
+        (on-hear-partial-message secure +.packet)
       ::
-          ::  %carp: we heard a message fragment; try to assemble into a message
-          ::
-          %carp
-        =/  =message-id  message-id.message-descriptor.meal
-        ::
-        =/  =inbound-state
-          %-  fall  :_  *inbound-state
-          (~(get by bone-states) bone.message-id)
-        ::
-        =/  assembler
-          %-  message-assembler  :*
-            bone.message-id
-            message-seq.message-id
-            authenticated.decoded
-            raw-packet-hash.task
-            lane.task
-            inbound-state
-          ==
-        ::
-        =-  abet:(on-carp:assembler -)
-        ::
-        ::  TODO: assert meal and task encodings match?
-        ::
-        :*  (number-to-encoding encoding-num.message-descriptor.meal)
-            num-fragments.message-descriptor.meal
-            fragment-num.meal
-            partial-message-blob.meal
-        ==
-      ::
-          ::  %fore: we heard a packet to forward; convert origin and pass it on
-          ::
           %fore
-        =/  =lane  (set-forward-origin lane.task lane.meal)
-        (give %fore ship.meal lane raw-packet-blob.meal)
+        =/  adjusted-lane=lane  (set-forward-origin lane lane.meal)
+        (give %fore ship.meal adjusted-lane raw-packet-blob.meal)
       ==
-    ::
     ==
+  ::  +on-hear-partial-message: handle a packet from a fragmented message
+  ::
+  ++  on-hear-partial-message
+    |=  $:  secure=?
+            [=bone =message-seq]
+            =fragment-num
+            num-fragments=fragment-num
+            =partial-message-blob
+        ==
+    ^+  decoder-core
+    ::
+    =/  =inbound-state
+      %-  fall  :_  *inbound-state
+      (~(get by bone-states) bone)
+    ::  ignore messages too far in the future; limit to 10 messages in progress
+    ::
+    ?:  (gte message-seq (add 10 last-acked.inbound-state))
+      decoder-core
+    ::
+    =/  is-last-fragment=?  =(+(fragment-num) num-fragments)
+    ::  always ack a dupe! repeat a nack if they might not know about it
+    ::
+    ?:  (lte message-seq last-acked.inbound-state)
+      ?.  is-last-fragment
+        ::  single packet ack
+        ::
+        (give %sack [bone message-seq] %fragment fragment-num)
+      ::  whole message ack or nack
+      ::
+      =/  ok=?  !(~(has in nacks.inbound-state) message-seq)
+      (give %sack [bone message-seq] %message ok lag=`@dr`0)
+    ::  seq>last-acked, seq<last-heard; we've heard message but not processed it
+    ::
+    ?:  (lth message-seq last-heard.inbound-state)
+      ?:  is-last-fragment
+        ::  last packet; drop, since we don't know whether to ack or nack yet
+        ::
+        decoder-core
+      ::  ack all other packets
+      ::
+      (give %sack [bone message-seq] %fragment fragment-num)
+    ::  seq>=last-heard; this is a packet in a live message
+    ::
+    =/  =live-hear-message
+      ::  create a default :live-hear-message if this is the first fragment
+      ::
+      ?~  existing=(~(get by live-messages.inbound-state) message-seq)
+        [num-received=0 num-fragments fragments=~]
+      ::  we have an existing partial message; check parameters match
+      ::
+      ?>  (gth num-fragments.u.existing fragment-num)
+      ?>  =(num-fragments.u.existing num-fragments)
+      ::
+      u.existing
+    ::
+    =/  already-heard=?  (~(has by fragments.live-hear-message) fragment-num)
+    ::  always ack a dupe! ... or it's the last fragment in a message, drop it
+    ::
+    ?:  already-heard
+      ?:  is-last-fragment
+        decoder-core
+      (give %sack [bone message-seq] %fragment fragment-num)
+    ::  new fragment; register in our state and check if message is done
+    ::
+    =.  num-received.live-hear-message  +(num-received.live-hear-message)
+    ::
+    =.  fragments.live-hear-message
+      %-  ~(put by fragments.live-hear-message)
+      [fragment-num partial-message-blob]
+    ::
+    =.  live-messages.inbound-state
+      %-  ~(put by live-messages.inbound-state)
+      [message-seq live-hear-message]
+    ::
+    =.  bone-states  (~(put by bone-states) bone inbound-state)
+    ::  ack any packet other than the last one, and continue either way
+    ::
+    =?  decoder-core  !is-last-fragment
+      (give %sack [bone message-seq] %fragment fragment-num)
+    ::  enqueue all completed messages starting at +(last-heard.inbound-state)
+    ::
+    |-  ^+  decoder-core
+    ::  if this is not the next message to ack, we're done
+    ::
+    ?.  =(message-seq +(last-heard.inbound-state))
+      decoder-core
+    ::  if we haven't heard anything from this message, we're done
+    ::
+    ?~  live=(~(get by live-messages.inbound-state) message-seq)
+      decoder-core
+    ::  if the message isn't done yet, we're done
+    ::
+    ?.  =(num-received num-fragments):live
+      decoder-core
+    ::  we have the whole message; update state, assemble, and send to vane
+    ::
+    =.  last-heard.inbound-state  +(last-heard.inbound-state)
+    ::
+    =.  live-messages.inbound-state
+      (~(del by live-messages.inbound-state) message-seq)
+    ::
+    =.  bone-states  (~(put by bone-states) bone inbound-state)
+    ::  assemble and enqueue message to send to local vane for processing
+    ::
+    =/  =message      (assemble-fragments [num-fragments fragments]:live)
+    =.  decoder-core  (enqueue-to-vane inbound-state bone message-seq message)
+    ::
+    $(message-seq +(message-seq))
+  ::  +enqueue-to-vane: enqueue a completely heard message to be sent to vane
+  ::
+  ++  enqueue-to-vane
+    |=  [=inbound-state =lane =bone =message-seq =message]
+    ^+  decoder-core
+    ::
+    =/  empty=?  =(~ pending-vane-ack.inbound-state)
+    ::
+    =.  pending-vane-ack.inbound-state
+      (~(put to pending-vane-ack.inbound-state) message-seq lane message)
+    ::
+    =.  bone-states  (~(put by bone-states) bone inbound-state)
+    ::
+    ?.  empty
+      decoder-core
+    (send-next-message-to-vane bone inbound-state lane message)
+  ::  +send-next-message-to-vane: relay received message to local vane
+  ::
+  ::    Reads from persistent state and peeks at head of :pending-vane-ack
+  ::    queue to figure out which message to send to the vane.
+  ::
+  ::    The vane will respond with an ack or nack when it's done processing
+  ::    the message, at which point we'll pop this message off our queue and
+  ::    send the next one.
+  ::
+  ++  send-next-message-to-vane
+    |=  =bone
+    ^+  decoder-core
+    ::
+    =/  =inbound-state  (~(got by bone-states) bone)
+    =/  =message        |2:~(top to pending-vane-ack.inbound-state)
+    ::
+    (give %have bone message)
   ::  |message-assembler: core for assembling received packets into messages
   ::
   ++  message-assembler
@@ -2106,27 +2176,33 @@
         =/  adjusted-lane=^lane  (set-forward-origin lane lane.meal)
         (give %fore ship.meal adjusted-lane raw-packet-blob.meal)
       ==
-    ::
-    ++  assemble-fragments
-      =|  index=fragment-num
-      =|  sorted-fragments=(list partial-message-blob)
-      ::
-      |=  $:  num-fragments=fragment-num
-              fragments=(map fragment-num partial-message-blob)
-          ==
-      ^-  message-blob
-      ::  final packet; concatenate fragment buffers
-      ::
-      ?:  =(num-fragments index)
-        %+  can  13
-        %+  turn  (flop sorted-fragments)
-        |=(a=@ [1 a])
-      ::  not the final packet; find fragment by index and prepend to list
-      ::
-      =/  current-fragment=partial-message-blob  (~(got by fragments) index)
-      $(index +(index), sorted-fragments [current-fragment sorted-fragments])
     --
   --
+::  +assemble-fragments: produce a +message-blob by stitching fragments
+::
+++  assemble-fragments
+  =|  index=fragment-num
+  =|  sorted-fragments=(list partial-message-blob)
+  ::
+  |=  $:  num-fragments=fragment-num
+          fragments=(map fragment-num partial-message-blob)
+      ==
+  ^-  message
+  ::
+  %-  message
+  %-  cue
+  ::
+  |-  ^-  message-blob
+  ::  final packet; concatenate fragment buffers
+  ::
+  ?:  =(num-fragments index)
+    %+  can  13
+    %+  turn  (flop sorted-fragments)
+    |=(a=@ [1 a])
+  ::  not the final packet; find fragment by index and prepend to list
+  ::
+  =/  current-fragment=partial-message-blob  (~(got by fragments) index)
+  $(index +(index), sorted-fragments [current-fragment sorted-fragments])
 ::  +interpret-packet: authenticate and decrypt a packet, effectfully
 ::
 ++  interpret-packet
