@@ -9,6 +9,18 @@
 ::
 |%
 ::
+::  +internal-gift: synonym for +cuft.
+::
+++  internal-gift  cuft
+::
+::  +internal-task: synonym for +cush.
+::
+++  internal-task  cush
+::
+::  +agent-action: synonym for +club.
+::
+++  agent-action  club
+::
 ::  +coke: cook.
 ::
 ++  coke
@@ -69,12 +81,12 @@
 ::
 |%
 ::
-::  +cote: +ap note.
+::  +internal-note: +ap note.
 ::
-++  cote
-  $%  [note=%meta =term =vase]
-      [note=%send =ship =cush]
-      [note=%hiss knot=(unit knot) =mark =cage]
+++  internal-note
+  $%  [task=%meta =term =vase]
+      [task=%send =ship =internal-task]
+      [task=%hiss knot=(unit knot) =mark =cage]
   ==
 ::
 ::  +internal-move: internal move.
@@ -82,7 +94,7 @@
 ++  internal-move
   $:
     =bone
-    move=(wind cote cuft)
+    move=(wind internal-note internal-gift)
   ==
 ::
 ::  +move: typed move.
@@ -185,9 +197,9 @@
       duct-map=(map @ud duct)
   ==
 ::
-::  +opaque-input: opaque input.
+::  +opaque-ducts: opaque input.
 ::
-++  opaque-input
+++  opaque-ducts
   $:
       :: bone sequence
       ::
@@ -247,12 +259,12 @@
       required-trans=(map bone mark)
       :: opaque ducts
       ::
-      ducts=opaque-input
+      ducts=opaque-ducts
   ==
 ::
 :: +blocked: blocked kisses.
 ::
-++  blocked  (qeu (trel duct privilege club))
+++  blocked  (qeu (trel duct privilege agent-action))
 ::
 :: +stats: statistics.
 ::
@@ -462,7 +474,7 @@
     |=  [=dude =beak =vase]
     ^+  mo-state
     ::
-    =/  =opaque-input
+    =/  =opaque-ducts
       :+  bone=1
         bone-map=[[[~ ~] 0] ~ ~]
        duct-map=[[0 [~ ~]] ~ ~]
@@ -473,7 +485,7 @@
         control-duct    hen
         beak            beak
         running-state   vase
-        ducts           opaque-input
+        ducts           opaque-ducts
       ==
     ::
     =/  agents
@@ -487,13 +499,13 @@
   ::
   ++  mo-away
     ~/  %mo-away
-    |=  [=ship =cush]
+    |=  [=ship =internal-task]
     ^+  mo-state
     ::
-    =/  =dude  p.cush
-    =/  =club  q.cush
+    =/  =dude  p.internal-task
+    =/  =agent-action  q.internal-task
     ::
-    ?:  ?=(%pump -.club)
+    ?:  ?=(%pump -.agent-action)
       ::
       ::  you'd think this would send an ack for the diff
       ::  that caused this pump.  it would, but we already
@@ -503,27 +515,27 @@
       ::
       mo-state
     ::
-    ?:  ?=(%peer-not -.club)
-      =/  =tang  p.club
-      =/  err  (some tang)
-      (mo-give %unto %reap err)
+    ?:  ?=(%peer-not -.agent-action)
+      =/  =tang  p.agent-action
+      (mo-give %unto %reap (some tang))
     ::
     =^  bone  mo-state  (mo-bale ship)
     ::
     =/  =forward-ames
-      ?-  -.club
-        %poke  [%m p.p.club q.q.p.club]
+      ?-  -.agent-action
+        %poke  [%m p.p.agent-action q.q.p.agent-action]
         %pull  [%u ~]
         %puff  !!
         %punk  !!
-        %peel  [%l club]
-        %peer  [%s p.club]
+        %peel  [%l agent-action]
+        %peer  [%s p.agent-action]
       ==
     ::
     =/  =path
-      =/  action  -.club
+      =/  action  -.agent-action
       /sys/way/[action]
     ::
+    :: FIXME
     =/  =note-arvo  [%a %want ship [%g %ge dude ~] [bone forward-ames]]
     ::
     (mo-pass path note-arvo)
@@ -745,20 +757,20 @@
     ::
     ?>  ?=([%g %unto *] sign-arvo)
     ::
-    =/  =cuft  +>.sign-arvo
+    =/  =internal-gift  +>.sign-arvo
     ::
-    ?-    -.cuft
+    ?-    -.internal-gift
         ::
         %coup
         ::
-      (mo-give %mack p.cuft)
+      (mo-give %mack p.internal-gift)
         ::
         %diff
         ::
       =/  sys-path  [%sys %red t.path]
       =/  =note-arvo
         =/  path  [%g %gh dap ~]
-        =/  noun  [num %d p.p.cuft q.q.p.cuft]
+        =/  noun  [num %d p.p.internal-gift q.q.p.internal-gift]
         [%a %want him path noun]
       ::
       (mo-pass sys-path note-arvo)
@@ -775,7 +787,7 @@
         ::
         %reap
         ::
-      (mo-give %mack p.cuft)
+      (mo-give %mack p.internal-gift)
     ==
   ::
   ::  +mo-cyst-val: inbound validate.
@@ -805,8 +817,8 @@
       [%high routes]
     ::
     =/  =cage  (result-to-cage:ford build-result)
-    =/  =club  [%poke cage]
-    (mo-clip dude privilege club)
+    =/  =agent-action  [%poke cage]
+    (mo-clip dude privilege agent-action)
   ::
   ::  +mo-cyst-way: outbound request.
   ::
@@ -890,8 +902,8 @@
         mo-state
       ::
       =/  pouted
-        =/  =cuft  +>.sign-arvo
-        (ap-pout:initialised t.t.t.path cuft)
+        =/  =internal-gift  +>.sign-arvo
+        (ap-pout:initialised t.t.t.path internal-gift)
       ::
       ap-abet:pouted
     ==
@@ -923,12 +935,12 @@
     ::
     =/  =duct  p.kiss
     =/  =privilege  q.kiss
-    =/  =club  r.kiss
+    =/  =agent-action  r.kiss
     ::
     =/  move
       =/  =sock  [attributing.routes.privilege our]
-      =/  =cush  [dude club]
-      =/  action  [%slip %g %deal sock cush]
+      =/  =internal-task  [dude agent-action]
+      =/  action  [%slip %g %deal sock internal-task]
       [duct action]
     ::
     $(moves [move moves])
@@ -959,10 +971,10 @@
     =/  initialised  (ap-abed:ap dude privilege)
     (ap-peek:initialised term path)
   ::
-  ::  +mo-clip: apply club.
+  ::  +mo-clip: apply action.
   ::
   ++  mo-clip
-    |=  [=dude =privilege =club]
+    |=  [=dude =privilege =agent-action]
     ^+  mo-state
     ::
     =/  =path
@@ -973,36 +985,36 @@
       =/  =beak  (mo-beak dude)
       [p q]:beak
     ::
-    ?:  ?=(%puff -.club)
-      =/  =schematic:ford  [%vale ship-desk +.club]
+    ?:  ?=(%puff -.agent-action)
+      =/  =schematic:ford  [%vale ship-desk +.agent-action]
       =/  =note-arvo  [%f %build live=%.n schematic]
       (mo-pass path note-arvo)
     ::
-    ?:  ?=(%punk -.club)
-      =/  =schematic:ford  [%cast ship-desk p.club [%$ q.club]]
+    ?:  ?=(%punk -.agent-action)
+      =/  =schematic:ford  [%cast ship-desk p.agent-action [%$ q.agent-action]]
       =/  =note-arvo  [%f %build live=%.n schematic]
       (mo-pass path note-arvo)
     ::
-    ?:  ?=(%peer-not -.club)
-      =/  err  (some p.club)
+    ?:  ?=(%peer-not -.agent-action)
+      =/  err  (some p.agent-action)
       (mo-give %unto %reap err)
     ::
     =/  initialised  (ap-abed:ap dude privilege)
-    =/  applied  (ap-club:initialised club)
+    =/  applied  (ap-agent-action:initialised agent-action)
     ap-abet:applied
   ::
   ::  +mo-come: handle locally.
   ::
   ++  mo-come
-    |=  [=ship =cush]
+    |=  [=ship =internal-task]
     ^+  mo-state
     ::
     =/  =privilege
       =/  =routes  [disclosing=~ attributing=ship]
       [%high routes]
     ::
-    =/  =dude  p.cush
-    =/  =club  q.cush
+    =/  =dude  p.internal-task
+    =/  =agent-action  q.internal-task
     ::
     =/  is-running  (~(has by running.ship-state.gall) dude)
     =/  is-waiting  (~(has by waiting.ship-state.gall) dude)
@@ -1012,7 +1024,7 @@
       =/  =blocked
         =/  waiting  (~(get by waiting.ship-state.gall) dude)
         =/  kisses  (fall waiting *blocked)
-        =/  kiss  [hen privilege club]
+        =/  kiss  [hen privilege agent-action]
         (~(put to kisses) kiss)
       ::
       =/  waiting  (~(put by waiting.ship-state.gall) dude blocked)
@@ -1021,7 +1033,7 @@
         waiting.ship-state.gall  waiting
       ==
     ::
-    (mo-clip dude privilege club)
+    (mo-clip dude privilege agent-action)
   ::
   ::  +mo-gawk: ames forward.
   ::
@@ -1047,29 +1059,29 @@
           %m
           ::
         =/  =task:able
-          =/  =cush  [dude %puff mark.forward-ames noun.forward-ames]
-          [%deal sock cush]
+          =/  =internal-task  [dude %puff [mark noun]:forward-ames]
+          [%deal sock internal-task]
         [%g task]
           ::
           %l
           ::
         =/  =task:able
-          =/  =cush  [dude %peel mark.forward-ames path.forward-ames]
-          [%deal sock cush]
+          =/  =internal-task  [dude %peel [mark path]:forward-ames]
+          [%deal sock internal-task]
         [%g task]
           ::
           %s
           ::
         =/  =task:able
-          =/  =cush  [dude %peer path.forward-ames]
-          [%deal sock cush]
+          =/  =internal-task  [dude %peer path.forward-ames]
+          [%deal sock internal-task]
         [%g task]
           ::
           %u
           ::
         =/  =task:able
-          =/  =cush  [dude %pull ~]
-          [%deal sock cush]
+          =/  =internal-task  [dude %pull ~]
+          [%deal sock internal-task]
         [%g task]
       ==
     ::
@@ -1146,15 +1158,15 @@
         =/  bone  u.maybe-bone
         ap-state(dap dude, pry privilege, sat agent, ost bone)
       ::
-      =/  =opaque-input
+      =/  =opaque-ducts
         =/  bone  +(bone.ducts.agent)
         :+  bone=bone
           bone-map=(~(put by bone-map.ducts.agent) hen bone)
         duct-map=(~(put by duct-map.ducts.agent) bone hen)
       ::
       %=  ap-state
-        ost        bone.ducts.agent :: FIXME check that this is right
-        ducts.sat  opaque-input
+        ost        bone.ducts.agent
+        ducts.sat  opaque-ducts
       ==
     ::
     ::  +ap-abet: resolve moves.
@@ -1166,14 +1178,14 @@
       ::
       =/  running  (~(put by running.ship-state.gall) dap sat)
       ::
-      =/  next
+      =/  moves
         =/  from-internal  (turn zip ap-aver)
         =/  from-suss  (turn dub ap-avid)
-        (weld from-internal (weld from-suss moves))
+        :(weld from-internal from-suss moves)
       ::
       %_  mo-state
         running.ship-state.gall  running
-        moves                    next
+        moves                    moves
       ==
     ::
     ::  +ap-abut: track queue.
@@ -1190,14 +1202,15 @@
         ?.  ?=([%give %diff *] move.i.internal-moves)
           $(internal-moves t.internal-moves)
         ::
-        =^  filled  ap-state  ap-fill(ost bone.i.internal-moves)
+        =/  =internal-move  i.internal-moves
+        =^  filled  ap-state  ap-fill(ost bone.internal-move)
         ::
-        =/  ribs
+        =/  new-bones
           ?:  filled
             bones
-          (~(put in bones) bone.i.internal-moves)
+          (~(put in bones) bone.internal-move)
         ::
-        $(internal-moves t.internal-moves, bones ribs)
+        $(internal-moves t.internal-moves, bones new-bones)
       ::
       =/  boned  ~(tap in bones)
       ::
@@ -1206,9 +1219,7 @@
       ?~  boned
         ap-state
       ::
-      =>
-      ::
-      $(boned t.boned, ost i.boned)
+      =>  $(boned t.boned, ost i.boned)
       ::
       =/  tib  (~(get by incoming.subscribers.sat) ost)
       ::
@@ -1226,7 +1237,7 @@
       ^-  move
       ::
       =/  =duct  (~(got by duct-map.ducts.sat) bone.internal-move)
-      =/  wind
+      =/  card
         ?-    -.move.internal-move
             ::
             %slip  !!
@@ -1236,59 +1247,68 @@
             %give
             ::
           ?<  =(0 bone.internal-move)
-          ?.  ?=(%diff -.p.move.internal-move)
-            [%give %unto p.move.internal-move]
           ::
-          =/  =cage  p.p.move.internal-move
+          =/  =internal-gift  p.move.internal-move
+          ?.  ?=(%diff -.internal-gift)
+            [%give %unto internal-gift]
+          ::
+          =/  =cage  p.internal-gift
           =/  =mark
             =/  trans  (~(get by required-trans.sat) bone.internal-move)
             (fall trans p.cage)
           ::
           ?:  =(mark p.cage)
-            [%give %unto p.move.internal-move]
+            [%give %unto internal-gift]
           ::
           =/  =path  /sys/pel/[dap]
-          =/  =schematic:ford
-            =/  =beak  (mo-beak dap)
-            [%cast [p q]:beak mark [%$ cage]]
           ::
-          =/  =note-arvo  [%f %build live=%.n schematic]
+          =/  =note-arvo
+            =/  =schematic:ford
+              =/  =beak  (mo-beak dap)
+              [%cast [p q]:beak mark [%$ cage]]
+            [%f %build live=%.n schematic]
+          ::
           [%pass path note-arvo]
             ::
             %pass
             ::
-          =/  =path  [%use dap p.move.internal-move]
+          =/  =path  p.move.internal-move
+          =/  =internal-note  q.move.internal-move
+          ::
+          =/  use-path  [%use dap path]
+          ::
           =/  =note-arvo
-            ?-  note.q.move.internal-move
+            ?-  task.internal-note
                 ::
                 %hiss
                 ::
-              [%e %hiss +.q.move.internal-move]
+              [%e %hiss [knot mark cage]:internal-note]
                 ::
                 %send
                 ::
-              =/  =sock  [our ship.q.move.internal-move]
-              =/  =cush  cush.q.move.internal-move
-              [%g %deal sock cush]
+              =/  =sock  [our ship.internal-note]
+              =/  =internal-task  internal-task.internal-note
+              [%g %deal sock internal-task]
                 ::
                 %meta
                 ::
-              =/  =term  term.q.move.internal-move
-              =/  =vase  vase.q.move.internal-move
+              =/  =term  term.internal-note
+              =/  =vase  vase.internal-note
               [term %meta vase]
             ==
-          [%pass path note-arvo]
+          ::
+          [%pass use-path note-arvo]
         ==
       ::
-      [duct wind]
+      [duct card]
     ::
     ::  +ap-avid: onto results.
     ::
     ++  ap-avid
-      |=  a=(each suss tang)
+      |=  report=(each suss tang)
       ^-  move
       ::
-      [hen %give %onto a]
+      [hen %give %onto report]
     ::
     ::  +ap-call: call into server.
     ::
@@ -1311,6 +1331,7 @@
     ::
     ::  +ap-peek: peek.
     ::
+    ::  FIXME some patterns here could really stand to be cleaned up
     ++  ap-peek
       ~/  %ap-peek
       |=  [=term tyl=path]
@@ -1384,16 +1405,16 @@
         (some (some cage))
       ==
     ::
-    ::  +ap-club: apply effect.
+    ::  +ap-agent-action: apply effect.
     ::
-    ++  ap-club
-      |=  =club
+    ++  ap-agent-action
+      |=  =agent-action
       ^+  ap-state
       ::
-      ?-  -.club
-        %peel       (ap-peel +.club)
-        %poke       (ap-poke +.club)
-        %peer       (ap-peer +.club)
+      ?-  -.agent-action
+        %peel       (ap-peel +.agent-action)
+        %poke       (ap-poke +.agent-action)
+        %peer       (ap-peer +.agent-action)
         %puff       !!
         %punk       !!
         %peer-not   !!
@@ -1405,36 +1426,39 @@
     ::
     ++  ap-diff
       ~/  %ap-diff
-      |=  [=ship pax=path =cage]
+      |=  [=ship =path =cage]
       ^+  ap-state
       ::
-      =/  diff  [%diff p.cage +.pax]
+      =/  rest  +.path
+      =/  diff  [%diff p.cage rest]
       ::
-      =^  cug  ap-state  (ap-find diff)
+      =^  maybe-arm  ap-state  (ap-find diff)
       ::
-      ?~  cug
-        =/  target  [%.n ship +.pax]
+      ?~  maybe-arm
+        =/  target  [%.n ship rest]
         ::
         =/  =tang
-          =/  why  "diff: no {<`path`[p.cage +.pax]>}"
+          =/  why  "diff: no {<[p.cage rest]>}"
           (ap-suck why)
         ::
         =/  lame  (ap-lame %diff tang)
         (ap-pump:lame target)
       ::
+      =/  arm  u.maybe-arm
+      ::
       =/  =vase
         =/  target
-          ?:  =(0 p.u.cug)
-            [!>(`path`+.pax) !>(cage)]
-          [!>((slag (dec p.u.cug) `path`+.pax)) q.cage]
+          ?:  =(0 p.arm)
+            [!>(rest) !>(cage)]
+          [!>((slag (dec p.arm) rest)) q.cage]
         (slop target)
       ::
-      =^  cam  ap-state  (ap-call q.u.cug vase)
+      =^  cam  ap-state  (ap-call q.arm vase)
       ::
       ?^  cam
-        =/  lame  (ap-lame q.u.cug u.cam)
-        (ap-pump:lame %.n ship pax)
-      (ap-pump %.y ship pax)
+        =/  lame  (ap-lame q.arm u.cam)
+        (ap-pump:lame %.n ship path)
+      (ap-pump %.y ship path)
     ::
     ::  +ap-pump: update subscription.
     ::
@@ -1446,12 +1470,12 @@
       =/  way  [(scot %p ship) %out path]
       ::
       ?:  is-ok
-        =/  =cote  [%send ship -.path %pump ~]
-        (ap-pass way cote)
+        =/  =internal-note  [%send ship -.path %pump ~]
+        (ap-pass way internal-note)
       ::
       =/  give  (ap-give %quit ~)
-      =/  =cote  [%send ship -.path %pull ~]
-      (ap-pass:give way cote)
+      =/  =internal-note  [%send ship -.path %pull ~]
+      (ap-pass:give way internal-note)
     ::
     ::  +ap-fail: drop from queue.
     ::
@@ -1470,7 +1494,9 @@
       ::
       ?:  =(0 u.level)
         =/  deleted  (~(del by meter.subscribers.sat) ost)
-        ap-state(meter.subscribers.sat deleted)
+        %_  ap-state
+          meter.subscribers.sat  deleted
+        ==
       ::
       =/  dropped  (~(put by meter.subscribers.sat) ost u.level)
       ap-state(meter.subscribers.sat dropped)
@@ -1482,14 +1508,16 @@
       |=  =term
       ^-  [(each vase tang) _ap-state]
       ::
+      :: FIXME make this clearer
       =/  pyz
-        (mule |.((~(mint wa cache.sat) p.running-state.sat [%limb term]))) :: FIXME
+        (mule |.((~(mint wa cache.sat) p.running-state.sat [%limb term])))
       ::
       ?:  ?=(%.n -.pyz)
         =/  =tang  +.pyz
         [[%.n tang] ap-state]
       ::
       =/  this=(each vase tang)
+        :: FIXME make this clearer
         =/  ton  (mock [q.running-state.sat q.+<.pyz] ap-sled)
         ?-  -.ton
           %0  [%.y p.+<.pyz p.ton]
@@ -1506,9 +1534,9 @@
     ++  ap-fill
       ^-  [? _ap-state]
       ::
-      =/  level
-        =/  lev  (~(get by meter.subscribers.sat) ost)
-        (fall lev 0)
+      =/  meter
+        =/  level  (~(get by meter.subscribers.sat) ost)
+        (fall level 0)
       ::
       =/  =ship
         =/  incoming  (~(got by incoming.subscribers.sat) ost)
@@ -1517,16 +1545,21 @@
       =/  incoming  (~(get by incoming.subscribers.sat) ost)
       =/  duct  (~(get by duct-map.ducts.sat) ost)
       ::
-      ?:  &(=(20 level) !=(our ship))
+      ?:  &(=(20 meter) !=(our ship))
         ~&  [%gall-pulling-20 ost incoming duct]
         [%.n ap-state]
       ::
-      =/  meter  (~(put by meter.subscribers.sat) ost +(level))
-      =/  next  ap-state(meter.subscribers.sat meter)
+      =/  next
+        =/  meter  (~(put by meter.subscribers.sat) ost +(meter))
+        %_  ap-state
+          meter.subscribers.sat  meter
+        ==
+      ::
       [%.y next]
     ::
     ::  +ap-find: general arm.
     ::
+    ::  FIXME better names
     ++  ap-find
       ~/  %ap-find
       |=  [=term =path]
@@ -1569,17 +1602,21 @@
     ::  +ap-give: return result.
     ::
     ++  ap-give
-      |=  =cuft
+      |=  =internal-gift
       ^+  ap-state
       ::
-      =/  internal-moves  [[ost [%give cuft]] zip]
+      =/  internal-moves
+        =/  move  [%give internal-gift]
+        =/  =internal-move  [ost move]
+        [internal-move zip]
+      ::
       ap-state(zip internal-moves)
     ::
     ::  +ap-bowl: set up bowl.
     ::
     ++  ap-bowl
       ^+  ap-state
-      :: FIXME
+      :: FIXME improve
       %_    ap-state
           +12.q.running-state.sat
         ^-   bowl
@@ -1600,6 +1637,7 @@
     ::
     ::  +ap-move: process each move.
     ::
+    ::  FIXME improve
     ++  ap-move
       ~/  %ap-move
       |=  =vase
@@ -1646,13 +1684,17 @@
       |=  [=bone =vase]
       ^-  [(each internal-move tang) _ap-state]
       ::
-      =/  that
+      =/  that=(each internal-move tang)
         ?^  q.vase
           =/  =tang  (ap-suck "quit: improper give")
           [%.n tang]
-        =/  =cuft  [%quit ~]
-        =/  =internal-move  [bone=bone move=[%give cuft]]
-        [%.y p=internal-move]
+        ::
+        =/  =internal-move
+          =/  =internal-gift  [%quit ~]
+          =/  move  [%give internal-gift]
+          [bone move]
+        ::
+        [%.y internal-move]
       ::
       =/  next
         =/  incoming  (~(del by incoming.subscribers.sat) bone)
@@ -1662,6 +1704,7 @@
     ::
     ::  +ap-move-diff: give diff move.
     ::
+    ::  FIXME mild improve
     ++  ap-move-diff
       ~/  %diff
       |=  [=bone =vase]
@@ -1669,7 +1712,7 @@
       ::
       =^  pec  cache.sat  (~(sped wa cache.sat) vase)
       ::
-      ?.  &(?=(^ q.pec) ?=(@ -.q.pec) ((sane %tas) -.q.pec)) :: FIXME
+      ?.  &(?=(^ q.pec) ?=(@ -.q.pec) ((sane %tas) -.q.pec))
         =/  =tang  (ap-suck "diff: improper give")
         [[%.n tang] ap-state]
       ::
@@ -1677,12 +1720,14 @@
       ::
       =/  =internal-move
         =/  =cage  [-.q.pec tel]
-        [bone [%give %diff cage]]
+        =/  move  [%give %diff cage]
+        [bone move]
       ::
-      [[%.y p=internal-move] ap-state]
+      [[%.y internal-move] ap-state]
     ::
     ::  +ap-move-hiss: pass %hiss.
     ::
+    :: FIXME improve
     ++  ap-move-hiss
       ~/  %hiss
       |=  [=bone =vase]
@@ -1716,14 +1761,15 @@
       ::
       =/  =internal-move
         =/  =path  [(scot %p attributing.routes.pry) %cay u.pux]
-        =/  =cote  [%hiss u.usr r.q.vase [p.q.gaw paw]]
-        =/  wine  [%pass p=path q=cote]
-        [p=bone q=wine]
+        =/  =internal-note  [%hiss u.usr r.q.vase [p.q.gaw paw]]
+        =/  card  [%pass path internal-note]
+        [bone card]
       ::
-      [[%.y p=internal-move] ap-state]
+      [[%.y internal-move] ap-state]
     ::
     ::  +ap-move-mess: extract path, target.
     ::
+    ::  FIXME improve
     ++  ap-move-mess
       ~/  %mess
       |=  =vase
@@ -1751,6 +1797,7 @@
     ::
     ::  +ap-move-pass: pass general move.
     ::
+    ::  FIXME improve
     ++  ap-move-pass
       ~/  %pass
       |=  [=bone =noun =vase]
@@ -1781,6 +1828,7 @@
     ::
     ::  +ap-move-poke: pass %poke.
     ::
+    ::  FIXME improve
     ++  ap-move-poke
       ~/  %poke
       |=  [sto=bone vax=vase]
@@ -1806,6 +1854,7 @@
     ::
     ::  +ap-move-peel: pass %peel.
     ::
+    :: FIXME improve
     ++  ap-move-peel
       ~/  %peel
       |=  [=bone =vase]
@@ -1842,6 +1891,7 @@
     ::
     ::  +ap-move-peer: pass %peer.
     ::
+    ::  FIXME improve
     ++  ap-move-peer
       ~/  %peer
       |=  [=bone =vase]
@@ -1871,6 +1921,7 @@
     ::
     ::  +ap-move-pull: pass %pull.
     ::
+    ::  FIXME improve
     ++  ap-move-pull
       ~/  %pull
       |=  [=bone =vase]
@@ -1892,6 +1943,7 @@
     ::
     ::  +ap-move-send: pass gall action.
     ::
+    ::  FIXME improve
     ++  ap-move-send
       ~/  %send
       |=  [=bone =vase]
@@ -1901,7 +1953,7 @@
               (gte 1 (met 7 q.q.vase))
               ((sane %tas) r.q.vase)
           ==
-        =/  =tang  (ap-suck "send: improper ask.[%send wire gill club]")
+        =/  =tang  (ap-suck "send: improper ask.[%send wire gill agent-action]")
         :_(ap-state [%.n tang])
       ::
       =/  pux  ((soft path) p.q.vase)
@@ -1927,13 +1979,13 @@
         :_  ap-state
         :^  %.y  bone  %pass
         :-  [(scot %p q.q.vase) %out r.q.vase u.pux]
-        ^-  cote
+        ^-  internal-note
         [%send q.q.vase r.q.vase %poke p.t.q.vase geb]
       ::
       :_  ap-state
-      =/  cob  ((soft club) [s t]:q.vase)
+      =/  cob  ((soft agent-action) [s t]:q.vase)
       ?~  cob
-        =/  =tang  (ap-suck "send: malformed club")
+        =/  =tang  (ap-suck "send: malformed agent-action")
         [%.n tang]
       :^  %&  bone  %pass
       :-  [(scot %p q.q.vase) %out r.q.vase u.pux]
@@ -1942,11 +1994,16 @@
     ::  +ap-pass: request action.
     ::
     ++  ap-pass
-      |=  [=path =cote]
+      |=  [=path =internal-note]
       ^+  ap-state
       ::
-      =/  =internal-move  [ost [%pass path cote]]
-      ap-state(zip [internal-move zip])
+      =/  =internal-move
+        =/  move  [%pass path internal-note]
+        [ost move]
+      ::
+      =/  internal-moves  [internal-move zip]
+      ::
+      ap-state(zip internal-moves)
     ::
     ::  +ap-peep: reinstall.
     ::
@@ -2125,14 +2182,14 @@
     ::  +ap-pout: specific take.
     ::
     ++  ap-pout
-      |=  [=path =cuft]
+      |=  [=path =internal-gift]
       ^+  ap-state
       ::
-      ?-  -.cuft
-        %coup  (ap-take %coup +.path (some !>(p.cuft)))
-        %diff  (ap-diff attributing.routes.pry path p.cuft)
+      ?-  -.internal-gift
+        %coup  (ap-take %coup +.path (some !>(p.internal-gift)))
+        %diff  (ap-diff attributing.routes.pry path p.internal-gift)
         %quit  (ap-take %quit +.path ~)
-        %reap  (ap-take %reap +.path (some !>(p.cuft)))
+        %reap  (ap-take %reap +.path (some !>(p.internal-gift)))
       ==
     ::
     ::  +ap-prep: install.
