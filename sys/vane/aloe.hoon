@@ -348,20 +348,12 @@
 ::  +packet: format of decoded packet  TODO better layer docs
 ::
 +$  packet
-  $%  ::  %back: acknowledgment of a packet (positive or negative)
+  $%  ::  %back: acknowledgment of a received packet (positive or negative)
       ::
       ::    message-id: id of message containing acknowledged packet
-      ::    payload: body of data in acknowledgment
-      ::    fragment-num.payload: index of acknowledged packet within message
-      ::    ok.payload: %.y for positive ack, %.n for nack if message failed
-      ::    lag.payload: reported computation time (currently unused)
+      ::    ack-payload: body of data in acknowledgment
       ::
-      $:  %back
-          =message-id
-          $=  payload
-          $%  [%fragment =fragment-num]
-              [%message ok=? lag=@dr]
-      ==  ==
+      [%back =message-id =ack-payload]
       ::  %bond: message fragment
       ::
       ::    message-id: pair of flow id (+bone) and message sequence number
@@ -382,6 +374,19 @@
       ::    raw-packet-blob: the wrapped packet, to be sent to :ship
       ::
       [%fore =ship lane=(unit lane) =raw-packet-blob]
+  ==
+::  +ack-payload: acknowledgment contents; partial or whole message
+::
+::    %fragment: ack a fragment within a message
+::      fragment-num: which fragment is being acknowledged
+::
+::    %message: ack an entire message, positively or negatively
+::      ok: did processing this message succeed? If no, this is a nack
+::      lag: computation time, for help in congestion control
+::
++$  ack-payload
+  $%  [%fragment =fragment-num]
+      [%message ok=? lag=@dr]
   ==
 ::  +pki-context: context for messaging between :our and peer
 ::
@@ -610,12 +615,12 @@
     ^+  main-core
     ::
     ?-  -.task
-      %clue  (on-clue [ship pki-info]:task)
-      %done  (on-done [ship bone error]:task)
-      %hear  (on-hear [lane raw-packet-blob]:task)
-      %mess  (on-mess [ship duct route payload]:task)
-      %rend  (on-rend [ship bone route payload]:task)
-      %wake  (on-wake error.task)
+      %clue        (on-clue [ship pki-info]:task)
+      %done        (on-done [ship bone error]:task)
+      %hear        (on-hear [lane raw-packet-blob]:task)
+      %mess        (on-mess [ship duct route payload]:task)
+      %rend        (on-rend [ship bone route payload]:task)
+      %wake        (on-wake error.task)
     ==
   ::  +on-clue: peer update TODO docs and comments
   ::
@@ -662,10 +667,10 @@
     abet:(done:(per-peer ship) bone error)
   ::
   ++  on-hear-from-peer
-    |=  [=peer-state =lane =raw-packet-hash =raw-packet]
+    |=  [=peer-state =lane =raw-packet]
     =/  peer-core  (per-peer-with-state from.raw-packet peer-state)
     ::
-    abet:(hear:peer-core lane raw-packet-hash [encoding packet-blob]:raw-packet)
+    abet:(hear:peer-core lane [encoding packet-blob]:raw-packet)
   ::
   ++  on-hear
     |=  [=lane =raw-packet-blob]
@@ -676,12 +681,10 @@
     =/  her=ship  from.raw-packet
     ::
     =/  ship-state  (~(get by peers.ames-state) her)
-    =/  =raw-packet-hash  (shaf %flap raw-packet-blob)
     ?:  ?=([~ %peer *] ship-state)
       %-  on-hear-from-peer
       :*  peer-state.u.ship-state
           lane
-          raw-packet-hash
           raw-packet
       ==
     ::
@@ -691,7 +694,7 @@
       blocked-actions.u.ship-state
     ::
     =.  inbound-packets.blocked-actions
-      [[lane raw-packet-hash raw-packet] inbound-packets.blocked-actions]
+      [[lane raw-packet] inbound-packets.blocked-actions]
     ::
     =.  main-core  (give %veil her)
     =.  peers.ames-state
@@ -810,14 +813,22 @@
           (give %home [lane raw-packet-blob]:gift)
         (send(her ship.gift) [`lane raw-packet-blob]:gift)
       ::
-          %have  (have [bone route payload]:gift)
-          %meet  (give gift)
-          %rack  (to-task [bone %back raw-packet-hash error ~s0]:gift)
-          %rout  peer-core(lane.peer-state `lane.gift)
-          %sack  (send-ack [bone raw-packet-hash error]:gift)
+          %heard-message  (heard-message [bone route payload]:gift)
+          %meet           (give gift)
+          %nacksplain     (nacksplain [message-id error]:gift)
+          %ack-received   (to-task [bone %back error ~s0]:gift)
+          %lane           peer-core(lane.peer-state `lane.gift)
+          %send-ack       (send-ack [bone error]:gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
-      ::
       ==
+    ::  +nacksplain: send message explaining a nack
+    ::
+    ++  nacksplain
+      |=  [[=bone =message-seq] =error]
+      ^+  peer-core
+      ::
+      =.  main-core  (work [%rend her bone /a/nack message-seq error])
+      peer-core
     ::
     ++  handle-encode-meal-gifts
       |=  gifts=(list gift:encode-meal)
@@ -857,9 +868,9 @@
       ^+  peer-core
       ::
       (give %symmetric-key her (add ~m1 now) symmetric-key)
-    ::  +have: receive message; relay to client vane by bone parity
+    ::  +heard-message: receive message; relay to client vane by bone parity
     ::
-    ++  have
+    ++  heard-message
       |=  [=bone route=path payload=*]
       ^+  peer-core
       ::  even bone means backward flow, like a subscription update; always ack
@@ -939,7 +950,7 @@
                   pki-info.peer-state
               ==
           :+  now  eny
-          ^-  meal
+          ^-  packet
           [%back (mix bone 1) raw-packet-hash error ~s0]
       ::
       =.  peer-core  (handle-encode-meal-gifts gifts)
@@ -1703,101 +1714,75 @@
     ^-  pump-context
     [[gift gifts.ctx] state.ctx]
   --
-::  +encode-message: generate packets from a +message, with effects
+::  +encode-message: generate raw packet blobs from a +message
 ::
 ++  encode-message
-  =>  |%
-      ::  +gift: side effect
-      ::
-      +$  gift
-        $%  ::  %line: set symmetric key
-            ::
-            ::    Connections start as %full, which uses asymmetric encryption.
-            ::    This core can produce an upgrade to a shared symmetric key,
-            ::    which is much faster; hence the %fast tag on that encryption.
-            ::
-            [%symmetric-key (expiring =symmetric-key)]
-        ==
-      --
-  ::  outer gate: establish pki context, producing inner gate
+  |=  [pki-context fresh-fast-key=?]
+  |=  [=message-id =message]
+  ^-  (lest raw-packet-blob)
+  ::  assert result contains at least one blob
   ::
-  |=  pki-context
-  ::  inner gate: process a meal, producing side effects and packets
+  =;  blobs  ?>(?=(^ blobs) blobs)
   ::
-  |=  =message
-  ::
-  |^  ^-  [gifts=(list gift) parts=(lest raw-packet-blob)]
-      ::  :message-blob: get a bytestream from the message by serializing it
+  |^  ^-  (list raw-packet-blob)
       ::
       =/  =message-blob  (jam message)
-      ::  message-nonce: hash (salted) message as on-the-wire message identifier
       ::
-      =/  =message-nonce  (shaf %thug message-blob)
-      ::  split the message into a list of 1KB-sized :fragments to fit in MTU
-      ::
-      =/  fragments                   (rip 13 message-blob)
+      =/  fragments  (rip 13 message-blob)
       =/  num-fragments=fragment-num  (lent fragments)
       =|  =fragment-num
       ::
       =/  packets
         |-  ^-  (list packet)
-        ?~  fragments
-          ~
-        :-  [message-nonce num-fragments fragment-num i.fragments]
+        ?~  fragments  ~
+        :-  ^-  packet
+            [%bond message-id fragment-num num-fragments i.fragments]
         $(fragments t.fragments, fragment-num +(fragment-num))
-      ::  encode packets into `(list packet-blob)` and maybe make symmetric key
       ::
-      =+  ^-  [gifts=(list gift) packet-blobs=(list [encoding packet-blob])]
-        ::  if we have a symmetric key, use it to encode the packets
-        ::
-        ?^  fast-key.pki-info
-          [~ (turn packets encode-packet-fast)]
-        ::  if we don't know their pubkey and life, send plaintext (%open)
-        ::
-        ?.  (~(has by her-public-keys.pki-info) her-life.pki-info)
-          [~ (turn packets encode-packet-open)]
-        ::  asymmetric encrypt; also produce symmetric key gift for upgrade
-        ::
-        ::    Generate a new symmetric key by hashing entropy, the date,
-        ::    and an insecure hash of :meal. We might want to change this to use
-        ::    a key derived using Diffie-Hellman.
-        ::
-        =/  new-symmetric-key=symmetric-key
-          (shaz :(mix (mug message-blob) now eny))
-        ::  expire the key in one month
-        ::  TODO: when should the key expire?
-        ::
-        :-  [%symmetric-key `@da`(add now ~m1) new-symmetric-key]~
-        (turn packets encode-packet-full)
-      ::  encode raw packets into blobs according to their encodings
+      =/  has-fast-key=?
+        ?=(^ symmetric-key.pki-info)
       ::
-      =/  parts=(list raw-packet-blob)
-        %+  turn  packet-blobs
-        |=  [=encoding =packet-blob]
-        ^-  raw-packet-blob
-        ::
-        %-  encode-raw-packet
-        ^-  raw-packet
-        [[her our] encoding packet-blob]
-      ::  ensure :parts has at least one item for +lest typechecking
+      =/  has-public-key=?
+        (~(has by her-public-keys.pki-info) her-life.pki-info)
+      ::  if we don't know their public key, we can't encrypt
       ::
-      ?>  ?=(^ parts)
-      [gifts parts]
+      ?.  has-public-key
+        (turn encode-packet-open packets)
+      ::  if we don't have a symmetric key, use asymmetric encryption
+      ::
+      ?.  has-fast-key
+        (turn encode-packet-full packets)
+      ::  if we've used our symmetric key before, send all %fast packets
+      ::
+      ?.  fresh-fast-key
+        (turn encode-packet-fast packets)
+      ::  fresh fast key; %full first packet, later packets are %fast
+      ::
+      ?>  ?=(^ packets)
+      ::
+      :-  (encode-packet-full i.packets)
+      (turn encode-packet-fast t.packets)
   ::  +encode-packet-fast: symmetric-encrypt packet, prepending key hash
   ::
   ++  encode-packet-fast
+    ?>  ?=(^ fast-key.pki-info)
+    =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
+    =/  =key-hash       key-hash.u.fast-key.pki-info
+    ::
     |=  =packet
     ^-  [%fast =packet-blob]
     =/  packet-blob  (jam packet)
-    ?>  ?=(^ fast-key.pki-inf)
     :-  %fast
     %^  cat  7
-      key-hash.u.fast-key.pki-info
-    (en:crub:crypto symmetric-key.key.u.fast-key.pki-info (jam packet-blob))
+      key-hash
+    (en:crub:crypto symmetric-key (jam packet-blob))
   ::  +encode-packet-full: asymmetric-encrypt packet and add new symmetric key
   ::
   ++  encode-packet-full
+    ?>  ?=(^ fast-key.pki-info)
     =/  her-public-key  (~(got by her-public-keys.pki-info) her-life.pki-info)
+    =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
+    ::
     |=  =packet
     ^-  [%full =packet-blob]
     :-  %full
@@ -1813,7 +1798,7 @@
     ::
     %+  seal:as:crypto-core
       her-public-key
-    (jam [new-symmetric-key (jam packet)])
+    (jam [symmetric-key (jam packet)])
   ::  +encode-packet-open: sign packet and jam metadata and signature
   ::
   ++  encode-packet-open
@@ -1831,18 +1816,41 @@
 ++  message-decoder
   =>  |%
       +$  gift
-        $%  [%fore =ship =lane =raw-packet-blob]
-            [%have =bone =message]
-            [%symmetric-key =symmetric-key]
+        $%  ::  %ack-received: we received an ack on a packet we sent
+            ::
+            [%ack-received =message-id =ack-payload]
+            ::  %fore: forward packet TODO rename across file?
+            ::
+            [%fore =ship =lane =raw-packet-blob]
+            ::  %heard-message: we received a full message
+            ::
+            [%heard-message =bone =message]
+            ::  %lane: we learned a new route to :her
+            ::
+            [%lane =lane]
+            ::  %meet: we learned someone's PKI information
+            ::
             [%meet =ship =life =public-key]
-            [%nack =message-id]  ::  trigger nacksplanation message
-            [%rack =message-id =fragment-num ok=? lag=@dr]
-            [%rout =lane]
-            [%sack =message-id =fragment-num ok=? lag=@dr]
+            ::  %nacksplain: trigger nacksplanation message to be sent
+            ::
+            ::    message-id: id of message whose nack we're explaining
+            ::    error: explanation of why the message failed
+            ::
+            [%nacksplain =message-id =error]
+            ::  %send-ack: trigger ack to be sent
+            ::
+            [%send-ack =message-id =ack-payload]
+            ::  %symmetric-key: we learned of a new symmetric key
+            ::
+            [%symmetric-key =symmetric-key]
         ==
       +$  task
-        $%  [%done =bone error=(unit error)]
-            [%hear =lane =raw-packet-hash =encoding =packet-blob]
+        $%  ::  %done: handle ack from local client vane
+            ::
+            [%done =bone error=(unit error)]
+            ::  %hear: handle packet from unix
+            ::
+            [%hear =lane =encoding =packet-blob]
         ==
       --
   ::
@@ -1905,7 +1913,7 @@
       =+  [packet secure]=decoded
       ::  TODO document this effect
       ::
-      =?  decoder-core  secure  (give %rout lane.task)
+      =?  decoder-core  secure  (give %lane lane.task)
       ::
       ?-    -.packet
           %back
