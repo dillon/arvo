@@ -389,6 +389,7 @@
       [%message ok=? lag=@dr]
   ==
 ::  +pki-context: context for messaging between :our and peer
+::  TODO: remove face from pki-info
 ::
 +$  pki-context  [our=ship =our=life crypto-core=acru:ames her=ship =pki-info]
 ::  +pki-info: (possibly) secure channel between our and her
@@ -396,7 +397,7 @@
 ::    Everything we need to encode or decode a message between our and her.
 ::    :her-sponsors is the list of her current sponsors, not numeric ancestors.
 ::
-::    TODO: do we need the map of her public keys, or just her current key?
+::    TODO: we need a (unit deed) in here, or maybe even ours and hers 
 ::
 +$  pki-info
   $:  fast-key=(unit [=key-hash key=(expiring =symmetric-key)])
@@ -408,11 +409,11 @@
 ::
 +$  deed  (attested [=life =public-key =signature])
 ::
-::  XX names
+::  +packet-format: packet contents to be jammed for sending
 ::
 ++  packet-format
   |%
-  +$  none  raw-payload=@
+  +$  none  raw-payload=packet
   +$  open  [=from=life deed=(unit deed) signed-payload=@]
   +$  fast  [=key-hash encrypted-payload=@]
   +$  full  [[=to=life =from=life] deed=(unit deed) encrypted-payload=@]
@@ -1720,97 +1721,95 @@
   |=  [pki-context fresh-fast-key=?]
   |=  [=message-id =message]
   ^-  (lest raw-packet-blob)
-  ::  assert result contains at least one blob
+  ::  assert result contains at least one item
   ::
-  =;  blobs  ?>(?=(^ blobs) blobs)
+  =;  items  ?>(?=(^ items) items)
   ::
-  |^  ^-  (list raw-packet-blob)
-      ::
-      =/  =message-blob  (jam message)
-      ::
-      =/  fragments  (rip 13 message-blob)
-      =/  num-fragments=fragment-num  (lent fragments)
-      =|  =fragment-num
-      ::
-      =/  packets
-        |-  ^-  (list packet)
-        ?~  fragments  ~
-        :-  ^-  packet
-            [%bond message-id fragment-num num-fragments i.fragments]
-        $(fragments t.fragments, fragment-num +(fragment-num))
-      ::
-      =/  has-fast-key=?
-        ?=(^ symmetric-key.pki-info)
-      ::
-      =/  has-public-key=?
-        (~(has by her-public-keys.pki-info) her-life.pki-info)
-      ::  if we don't know their public key, we can't encrypt
-      ::
-      ?.  has-public-key
-        (turn encode-packet-open packets)
-      ::  if we don't have a symmetric key, use asymmetric encryption
-      ::
-      ?.  has-fast-key
-        (turn encode-packet-full packets)
-      ::  if we've used our symmetric key before, send all %fast packets
-      ::
-      ?.  fresh-fast-key
-        (turn encode-packet-fast packets)
-      ::  fresh fast key; %full first packet, later packets are %fast
-      ::
-      ?>  ?=(^ packets)
-      ::
-      :-  (encode-packet-full i.packets)
-      (turn encode-packet-fast t.packets)
-  ::  +encode-packet-fast: symmetric-encrypt packet, prepending key hash
+  ^-  (list raw-packet-blob)
   ::
-  ++  encode-packet-fast
+  =/  =message-blob  (jam message)
+  ::
+  =/  fragments  (rip 13 message-blob)
+  =/  num-fragments=fragment-num  (lent fragments)
+  =/  index=fragment-num  0
+  ::
+  =/  packets
+    |-  ^-  (list packet)
+    ?~  fragments  ~
+    ::
+    :-  [%bond message-id index num-fragments i.fragments]
+    ::
+    $(fragments t.fragments, index +(index))
+  ::  if symmetric key is new, send first packet as %full then rest as %fast
+  ::
+  ?:  fresh-fast-key
+    ?>  ?=(^ packets)
+    :-  ((encode-packet pki-context %full) i.packets)
+    (turn t.packets (encode-packet pki-context %fast))
+  ::  encrypt packets with symmetric key if we have one; else, just sign them
+  ::
+  %+  turn  packets
+  %+  encode-packet  pki-context
+  ?^(symmetric-key.pki-info %fast %open)
+::  +encode-packet: encode a +packet into a +raw-packet-blob
+::
+::    Curried w.r.t. the context so assertions and lookups only need to
+::    be performed once for a series of packets.
+::
+++  encode-packet
+  |=  [pki-context =encoding]
+  |=  =packet
+  ^-  raw-packet-blob
+  ::
+  %-  encode-raw-packet
+  ::
+  ^-  raw-packet
+  :+  [to=her from=our]  encoding
+  ::
+  ^-  packet-blob
+  %-  jam
+  ::
+  ?-    encoding
+  ::
+  %fast
+    ::
+    ^-  fast:packet-format
+    ::
     ?>  ?=(^ fast-key.pki-info)
     =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
     =/  =key-hash       key-hash.u.fast-key.pki-info
     ::
-    |=  =packet
-    ^-  [%fast =packet-blob]
-    =/  packet-blob  (jam packet)
-    :-  %fast
-    %^  cat  7
-      key-hash
-    (en:crub:crypto symmetric-key (jam packet-blob))
-  ::  +encode-packet-full: asymmetric-encrypt packet and add new symmetric key
+    :-  key-hash
+    (en:crub:crypto symmetric-key (jam packet))
   ::
-  ++  encode-packet-full
+  %full
+    ::
+    ^-  full:packet-format
+    ::
     ?>  ?=(^ fast-key.pki-info)
     =/  her-public-key  (~(got by her-public-keys.pki-info) her-life.pki-info)
     =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
     ::
-    |=  =packet
-    ^-  [%full =packet-blob]
-    :-  %full
-    %-  jam
-    ^-  full:packet-format
-    ::  TODO: send our deed if we're a moon or comet
-    ::
-    :+  [to=her-life.pki-info from=our-life]  deed=~
-    ::  encrypt the pair of [new-symmetric-key (jammed-meal)] for her eyes only
-    ::
-    ::    This sends the new symmetric key by piggy-backing it onto the
-    ::    original message.
+    :+  [to=her-life.pki-info from=our-life]
+      deed=~
     ::
     %+  seal:as:crypto-core
       her-public-key
-    (jam [symmetric-key (jam packet)])
-  ::  +encode-packet-open: sign packet and jam metadata and signature
+    (jam [symmetric-key packet])
   ::
-  ++  encode-packet-open
-    |=  =packet
-    ^-  [%open =packet-blob]
-    :-  %open
-    %-  jam
+  %open
+    ::
     ^-  open:packet-format
-    :+  from=our-life
-      deed=~
+    ::
+    :+  from=our-life  deed=~
     (sign:as:crypto-core (jam packet))
-  --
+  ::
+  %none
+    ::
+    ^-  none:packet-format
+    ::
+    packet
+  ==
 ::  |message-decoder: decode and assemble input packets into messages
 ::
 ++  message-decoder
