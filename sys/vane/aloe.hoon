@@ -227,6 +227,7 @@
 +$  blocked-actions
   $:  inbound-packets=(list [=lane =raw-packet-hash =raw-packet])
       outbound-messages=(list [=duct route=path payload=*])
+      outbound-forwards=(list raw-packet)
   ==
 ::  +inbound-state: per-bone receive state
 ::
@@ -366,15 +367,7 @@
           =fragment-num
           num-fragments=fragment-num
           =partial-message-blob
-      ==
-      ::  %fore: forwarded packet
-      ::
-      ::    ship: destination ship, to be forwarded to
-      ::    lane: IP route, or null if unknown
-      ::    raw-packet-blob: the wrapped packet, to be sent to :ship
-      ::
-      [%fore =ship lane=(unit lane) =raw-packet-blob]
-  ==
+  ==  ==
 ::  +ack-payload: acknowledgment contents; partial or whole message
 ::
 ::    %fragment: ack a fragment within a message
@@ -391,7 +384,13 @@
 ::  +pki-context: context for messaging between :our and peer
 ::  TODO: remove face from pki-info
 ::
-+$  pki-context  [our=ship =our=life crypto-core=acru:ames her=ship =pki-info]
++$  pki-context  
+   $:  our=ship
+       =our=life
+       crypto-core=acru:ames
+       her=ship
+       =pki-info
+   ==
 ::  +pki-info: (possibly) secure channel between our and her
 ::
 ::    Everything we need to encode or decode a message between our and her.
@@ -413,34 +412,23 @@
 ::
 ++  packet-format
   |%
-  +$  none  raw-payload=packet
-  +$  open  [=from=life deed=(unit deed) signed-payload=@]
-  +$  fast  [=key-hash encrypted-payload=@]
-  +$  full  [[=to=life =from=life] deed=(unit deed) encrypted-payload=@]
+  +$  none  packet
+  +$  open  [deed=(unit deed) signed-payload=@]
+  +$  fast  encrypted-payload=@
+  +$  full  [deed=(unit deed) encrypted-and-signed-payload=@]
   --
 ::  +domain: an HTTP domain, as list of '.'-delimited segments
 ::
 +$  domain  (list @t)
-::  +lane: route; ip addresss, port, and expiration date
+::  +lane: route; either galaxy or possibly indirect lane
 ::
-::    A lane can expire when we're no longer confident the other party
-::    is still reachable using this route.
-::
-::    TODO: more docs
+::    Galaxies are special-cased by the interpreter, which performs
+::    a DNS lookup instead of relying on Arvo to provide the route.
 ::
 +$  lane
-  $%  [%if (expiring [port=@ud ipv4=@if])]
-      [%is port=@ud lane=(unit lane) ipv6=@is]
-      [%ix (expiring [port=@ud ipv4=@if])]
+  $%  [%galaxy @p]
+      [%opaque direct=? address=@uxlane]
   ==
-::
-::  +lois: route; either galaxy or possibly indirect lane
-::
-::    Aspirational for now, but we hope to become agnostic to the
-::    transport layer that the interpreter uses. Possibilities include
-::    IPv4, IPv6, and I2P.
-::
-+$  lois                  (each @pD [direct=? lane=*])
 ::
 +$  encoding              ?(%none %open %fast %full)
 +$  error                 [tag=@tas =tang]
@@ -456,7 +444,12 @@
 +$  partial-message-blob  @uwpartialmessage
 +$  private-key           ring
 +$  public-key            pass
-+$  raw-packet            [[to=ship from=ship] =encoding =packet-blob]
++$  raw-packet
+  $:  [to=ship from=ship]
+      =encoding
+      origin=(unit @uxlane)
+      =packet-blob
+  ==
 +$  raw-packet-blob       @uwrawpacket
 +$  raw-packet-hash       @uvH
 +$  signature             @
@@ -654,12 +647,23 @@
         (on-hear-from-peer peer-state i.inbound)
       $(inbound t.inbound)
     ::
-    =/  outbound  (flop outbound-messages.blocked-actions.ship-state)
+    =/  messages  (flop outbound-messages.blocked-actions.ship-state)
     ::
-    |-  ^+  main-core
-    ?~  outbound  main-core
-    =.  main-core  (work [%mess ship i.outbound])
-    $(outbound t.outbound)
+    =.  main-core
+      |-  ^+  main-core
+      ?~  messages  main-core
+      =.  main-core  (work [%mess ship i.messages])
+      $(messages t.messages)
+    ::
+    =/  forwards  (flop outbound-forwards.blocked-actions.ship-state)
+    ::
+    =.  main-core
+      |-  ^+  main-core
+      ?~  forwards  main-core
+      =.  main-core  (send-forward i.forwards)
+      $(forwards t.forwards)
+    ::
+    main-core
   ::
   ++  on-done
     |=  [=ship =bone error=(unit error)]
@@ -678,7 +682,10 @@
     ^+  main-core
     ::
     =/  =raw-packet  (decode-raw-packet raw-packet-blob)
-    ?>  =(our to.raw-packet)
+    ::
+    ?.  =(our to.raw-packet)
+      (forward-packet lane raw-packet)
+    ::
     =/  her=ship  from.raw-packet
     ::
     =/  ship-state  (~(get by peers.ames-state) her)
@@ -724,7 +731,7 @@
     ::
     ::  XX if her is comet or moon, send %open
     ::
-    =.  main-core  (give %veil her)
+    =?  main-core  ?=(~ ship-state)  (give %veil her)
     =.  peers.ames-state
       (~(put by peers.ames-state) her [%pending-pki blocked-actions])
     ::
@@ -770,6 +777,47 @@
       ==
     ::
     main-core
+  ::  +on-hear-forward: TODO
+  ::
+  ++  on-hear-forward
+    |=  [=lane =raw-packet]
+    ^+  main-core
+    ::
+    =?  origin.raw-packet  ?=(~ origin.raw-packet)
+      ?-  -.lane
+        %galaxy  ~
+        %opaque  `address.lane
+      ==
+    ::
+    =/  her=ship    to.raw-packet
+    =/  ship-state  (~(get by peers.ames-state) her)
+    ::
+    ?:  ?=([~ %peer *] ship-state)
+      (send-forward raw-packet)
+    ::
+    =/  =blocked-actions
+      ?~  ship-state
+        *blocked-actions
+      blocked-actions.u.ship-state
+    ::
+    =.  outbound-forwards.blocked-actions
+      [[raw-packet] outbound-forwards.blocked-actions]
+    ::
+    =?  main-core  ?=(~ ship-state)  (give %veil her)
+    =.  peers.ames-state
+      (~(put by peers.ames-state) her [%pending-pki blocked-actions])
+    ::
+    main-core
+  ::
+  ++  send-forward
+    |=  =raw-packet
+    ^+  main-core
+    ::
+    =/  her=ship          to.raw-packet
+    =/  peer-core         (per-peer her)
+    =/  =raw-packet-blob  (encode-raw-packet raw-packet)
+    ::
+    abet:(send:peer-core raw-packet-blob)
   ::  +per-peer: convenience constructor for |peer-core
   ::
   ++  per-peer
@@ -808,19 +856,14 @@
       |=  =gift:message-decoder
       ^+  peer-core
       ::
-      ?-    -.gift
-          %fore
-        ?:  =(our ship.gift)
-          (give %home [lane raw-packet-blob]:gift)
-        (send(her ship.gift) [`lane raw-packet-blob]:gift)
-      ::
-          %heard-message  (heard-message [bone route payload]:gift)
-          %meet           (give gift)
-          %nacksplain     (nacksplain [message-id error]:gift)
-          %ack-received   (to-task [bone %back error ~s0]:gift)
-          %lane           peer-core(lane.peer-state `lane.gift)
-          %send-ack       (send-ack [bone error]:gift)
-          %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
+      ?-  -.gift
+        %heard-message  (heard-message [bone route payload]:gift)
+        %meet           (give gift)
+        %nacksplain     (nacksplain [message-id error]:gift)
+        %ack-received   (to-task [bone %back error ~s0]:gift)
+        %lane           peer-core(lane.peer-state `lane.gift)
+        %send-ack       (send-ack [bone error]:gift)
+        %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
     ::  +nacksplain: send message explaining a nack
     ::
@@ -860,7 +903,7 @@
         =/  =duct  (~(got by by-bone.bone-manager.peer-state) bone.gift)
         (give %rest duct error.gift)
       ::
-          %send  (send ~ raw-packet-blob.gift)
+          %send  (send raw-packet-blob.gift)
           %symmetric-key  (handle-symmetric-key-gift symmetric-key.gift)
       ==
     ::
@@ -958,59 +1001,43 @@
       ::
       |-  ^+  peer-core
       ?~  fragments  peer-core
-      =.  peer-core  (send ~ i.fragments)
+      =.  peer-core  (send i.fragments)
       $(fragments t.fragments)
     ::  +send: send raw packet; TODO document :lane arg
     ::
     ++  send
-      |=  [lane=(unit lane) =raw-packet-blob]
+      |=  =raw-packet-blob
       ^+  peer-core
       ::
       ?<  =(our her)
-      =/  her-sponsors=(list ship)  her-sponsors.pki-info.peer-state
+      =/  receivers=(list ship)  her-sponsors.pki-info.peer-state
       ::
       |-  ^+  peer-core
-      ?~  her-sponsors  peer-core
+      ?~  receivers  peer-core
       ::
-      =/  new-lane=(unit ^lane)
-        ?:  (lth i.her-sponsors 256)
-          ::  galaxies are mapped into reserved IP space, which the interpreter
-          ::  converts to a DNS request
-          ::
-          `[%if ~2000.1.1 31.337 (mix i.her-sponsors .0.0.1.0)]
+      =/  receiver-lane=(unit lane)
+        ?:  (lth i.receivers 256)
+          [%galaxy i.receivers]
         ::
-        ?:  =(her i.her-sponsors)  lane.peer-state
-        =/  ship-state  (~(get by peers.ames-state) i.her-sponsors)
-        ?~  ship-state
+        ?:  =(her i.receivers)
+          lane.peer-state
+        ?~  ship-state=(~(get by peers.ames-state) i.receivers)
           ~
         ?:  ?=(%pending-pki -.u.ship-state)
           ~
         lane.peer-state.u.ship-state
       ::  if no lane, try next sponsor
       ::
-      ?~  new-lane
-        $(her-sponsors t.her-sponsors)
-      ::  forwarded packets are not signed/encrypted,
-      ::  because (a) we don't need to; (b) we don't
-      ::  want to turn one packet into two.  the wrapped
-      ::  packet may exceed 8192 bits, but it's unlikely
-      ::  to blow the MTU (IP MTU == 1500).
+      ?~  receiver-lane
+        $(receivers t.receivers)
       ::
-      =?  raw-packet-blob  |(!=(her i.her-sponsors) !=(~ lane))
-        ::
-        %-  encode-raw-packet
-        ^-  raw-packet
-        :+  [our i.her-sponsors]
-          %none
-        (jam `meal`[%fore her lane raw-packet-blob])
+      =.  peer-core  (give %send u.receiver-lane raw-packet-blob)
+      ::  stop if we have a direct address;
+      ::  continue if we only have an indirect address.
       ::
-      =.  peer-core  (give %send u.new-lane raw-packet-blob)
-      ::  stop if we have an %if (direct) address;
-      ::  continue if we only have %ix (forwarded).
-      ::
-      ?:  ?=(%if -.u.new-lane)
+      ?.  ?=([%opaque direct=%.n *] u.receiver-lane)
         peer-core
-      $(her-sponsors t.her-sponsors)
+      $(receivers t.receivers)
     ::
     ++  to-task
       |=  [=bone =task:message-manager]
@@ -1727,11 +1754,10 @@
   ::
   ^-  (list raw-packet-blob)
   ::
-  =/  =message-blob  (jam message)
-  ::
-  =/  fragments  (rip 13 message-blob)
+  =/  =message-blob               (jam message)
+  =/  fragments                   (rip 13 message-blob)
   =/  num-fragments=fragment-num  (lent fragments)
-  =/  index=fragment-num  0
+  =/  index=fragment-num          0
   ::
   =/  packets
     |-  ^-  (list packet)
@@ -1758,6 +1784,49 @@
 ::
 ++  encode-packet
   |=  [pki-context =encoding]
+  ::
+  =/  encode=$-(packet *)
+    ?-    encoding
+        %fast
+      ?>  ?=(^ fast-key.pki-info)
+      =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
+      =/  =key-hash       key-hash.u.fast-key.pki-info
+      ::
+      |=  =packet
+      ^-  fast:packet-format
+      ::
+      :-  key-hash
+      (en:crub:crypto symmetric-key (jam packet))
+    ::
+        %full
+      ?>  ?=(^ fast-key.pki-info)
+      =/  her-public-key  (~(got by her-public-keys.pki-info) her-life.pki-info)
+      =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
+      ::
+      |=  =packet
+      ^-  full:packet-format
+      ::
+      :+  to=her-life.pki-info
+        deed=~
+      ::
+      %+  seal:as:crypto-core
+        her-public-key
+      (jam [our-life symmetric-key packet])
+    ::
+        %open
+      |=  =packet
+      ^-  open:packet-format
+      ::
+      :-  deed=~
+      (sign:as:crypto-core (jam [our-life packet]))
+    ::
+        %none
+      |=  =packet
+      ^-  none:packet-format
+      ::
+      packet
+    ==
+  ::
   |=  =packet
   ^-  raw-packet-blob
   ::
@@ -1768,48 +1837,7 @@
   ::
   ^-  packet-blob
   %-  jam
-  ::
-  ?-    encoding
-  ::
-  %fast
-    ::
-    ^-  fast:packet-format
-    ::
-    ?>  ?=(^ fast-key.pki-info)
-    =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
-    =/  =key-hash       key-hash.u.fast-key.pki-info
-    ::
-    :-  key-hash
-    (en:crub:crypto symmetric-key (jam packet))
-  ::
-  %full
-    ::
-    ^-  full:packet-format
-    ::
-    ?>  ?=(^ fast-key.pki-info)
-    =/  her-public-key  (~(got by her-public-keys.pki-info) her-life.pki-info)
-    =/  =symmetric-key  symmetric-key.key.u.fast-key.pki-info
-    ::
-    :+  [to=her-life.pki-info from=our-life]
-      deed=~
-    ::
-    %+  seal:as:crypto-core
-      her-public-key
-    (jam [symmetric-key packet])
-  ::
-  %open
-    ::
-    ^-  open:packet-format
-    ::
-    :+  from=our-life  deed=~
-    (sign:as:crypto-core (jam packet))
-  ::
-  %none
-    ::
-    ^-  none:packet-format
-    ::
-    packet
-  ==
+  (encode packet)
 ::  |message-decoder: decode and assemble input packets into messages
 ::
 ++  message-decoder
@@ -1818,9 +1846,6 @@
         $%  ::  %ack-received: we received an ack on a packet we sent
             ::
             [%ack-received =message-id =ack-payload]
-            ::  %fore: forward packet TODO rename across file?
-            ::
-            [%fore =ship =lane =raw-packet-blob]
             ::  %heard-message: we received a full message
             ::
             [%heard-message =bone =message]
@@ -1922,10 +1947,6 @@
       ::
           %bond
         (on-hear-fragment secure +.packet)
-      ::
-          %fore
-        =/  adjusted-lane=lane  (set-forward-origin lane lane.meal)
-        (give %fore ship.meal adjusted-lane raw-packet-blob.meal)
       ==
     ==
   ::  +on-hear-fragment: handle a packet from a fragmented message
@@ -2119,42 +2140,12 @@
   |=  [=encoding =packet-blob]
   ^-  [gifts=(list gift) authenticated=? =packet]
   ::
-  =|  gifts=(list gift)
-  ::
   |^  ?-  encoding
         %none  decode-none
         %open  decode-open
         %fast  decode-fast
         %full  decode-full
       ==
-  ::  +decode-none: decode an unsigned, unencrypted packet
-  ::
-  ++  decode-none
-    ^-  [gifts=(list gift) authenticated=? =packet]
-    ::
-    (produce-packet authenticated=%.n packet-blob)
-  ::  +decode-open: decode a signed, unencrypted packet
-  ::
-  ++  decode-open
-    ^-  [gifts=(list gift) authenticated=? =packet]
-    ::
-    =/  packet-noun  (cue packet-blob)
-    =/  open-packet  (open:packet-format packet-noun)
-    ::
-    =?    decoder-core
-        ?=(^ deed.open-packet)
-      (apply-deed u.deed.open-packet)
-    ::  TODO: is this assertion at all correct?
-    ::  TODO: make sure the deed gets applied to the pki-info if needed
-    ::
-    ?>  =(her-life.pki-info from-life.open-packet)
-    ::
-    =/  her-public-key
-      (~(got by her-public-keys.pki-info) her-life.pki-info)
-    ::
-    %+  produce-packet  authenticated=%.y
-    %-  need
-    (extract-signed her-public-key signed-payload.open-packet)
   ::  +decode-fast: decode a packet with symmetric encryption
   ::
   ++  decode-fast
@@ -2163,97 +2154,75 @@
     ?~  fast-key.pki-info
       ~|  %ames-no-fast-key^her  !!
     ::
-    =/  key-hash=@   (end 7 1 packet-blob)
-    =/  payload=@    (rsh 7 1 packet-blob)
+    =/  fast-packet
+      ;;  fast:packet-format
+      (cue packet-blob)
     ::
-    ~|  [%ames-bad-fast-key `@ux`key-hash `@ux`key-hash.u.fast-key.pki-info]
-    ?>  =(key-hash key-hash.u.fast-key.pki-info)
+    ?.  =(key-hash.fast-packet key-hash.u.fast-key.pki-info)
+      ~|  :+  %ames-bad-fast-key
+            key-hash.fast-packet
+          key-hash.u.fast-key.pki-info
+      !!
     ::
-    %+  produce-packet  authenticated=%.y
+    :+  gifts=~
+      authenticated=%.y
+    ;;  packet
+    %-  cue
     %-  need
-    (de:crub:crypto symmetric-key.key.u.fast-key.pki-info payload)
+    %+  de:crub:crypto
+      symmetric-key.key.u.fast-key.pki-info
+    encrypted-payload.fast-packet
   ::  +decode-full: decode a packet with asymmetric encryption
   ::
   ++  decode-full
     ^-  [gifts=(list gift) authenticated=? =packet]
     ::
-    =/  packet-noun  (cue packet-blob)
-    =/  full-packet  (full:packet-format packet-noun)
-    ::
-    =?    decoder-core
-        ?=(^ deed.full-packet)
-      (apply-deed u.deed.full-packet)
-    ::  TODO: is this assertion valid if we hear a new deed?
-    ::
-    ?.  =(her-life.pki-info from-life.full-packet)
-      ~|  [%ames-life-mismatch her her-life.pki-info from-life.full-packet]
-      !!
+    =/  full-packet
+      ;;  full:packet-format
+      (cue packet-blob)
     ::
     =/  her-public-key
-      ~|  [%ames-pubkey-missing her her-life.pki-info from-life.full-packet]
+      ~|  [%ames-pubkey-missing her her-life.pki-info]
       (~(got by her-public-keys.pki-info) her-life.pki-info)
     ::
     =/  jammed-wrapped=@
       %-  need
       (tear:as:crypto-core her-public-key encrypted-payload.full-packet)
     ::
-    =+  %-  ,[=symmetric-key jammed-packet=@]
+    =+  ;;  [=symmetric-key =packet]
         (cue jammed-wrapped)
     ::
-    =.  decoder-core  (give %symmetric-key symmetric-key)
-    =.  decoder-core  (give %meet her her-life.pki-info her-public-key)
-    ::
-    (produce-packet authenticated=%.y jammed-packet)
-  ::  +apply-deed: produce a %meet gift if the deed checks out
+    :+  gifts=[%symmetric-key symmetric-key]~
+      authenticated=%.y
+    packet
+  ::  +decode-open: decode a signed, unencrypted packet
   ::
-  ++  apply-deed
-    |=  =deed
-    ^+  decoder-core
-    ::
-    =+  [expiration-date life public-key signature]=deed
-    ::  if we already know the public key for this life, noop
-    ::
-    ?:  =(`public-key (~(get by her-public-keys.pki-info) life))
-      decoder-core
-    ::  TODO: what if the deed verifies at the same fife for :her?
-    ::
-    ?>  (verify-deed deed)
-    ::
-    (give %meet her life public-key)
-  ::  +verify-deed: produce %.y iff deed is valid
-  ::
-  ::    TODO: actually implement; this is just a stub
-  ::
-  ++  verify-deed
-    |=  =deed
-    ^-  ?
-    ::  if :her is anything other than a moon or comet, the deed is invalid
-    ::
-    ?+    (clan:title her)  %.n
-        ::  %earl: :her is a moon, with deed signed by numeric parent
-        ::
-        %earl
-      ~|  %ames-moons-not-implemented  !!
-    ::
-        ::  %pawn: comet, self-signed, life 1, address is fingerprint
-        ::
-        %pawn
-      ~|  %ames-comets-not-implemented  !!
-    ==
-  ::  +give: emit +gift effect, to be flopped later
-  ::
-  ++  give  |=(=gift decoder-core(gifts [gift gifts]))
-  ::  +produce-packet: exit with a +packet +cue'd from :packet-precursor
-  ::
-  ++  produce-packet
-    |=  [authenticated=? packet-precursor=@]
+  ++  decode-open
     ^-  [gifts=(list gift) authenticated=? =packet]
     ::
-    :+  (flop gifts)  authenticated
-    %-  packet
-    (cue packet-precursor)
+    =/  open-packet
+      ;;  open:packet-format
+      (cue packet-blob)
+    ::
+    =/  her-public-key
+      (~(got by her-public-keys.pki-info) her-life.pki-info)
+    ::
+    :+  gifts=~
+      authenticated=%.y
+    ;;  packet
+    %-  cue
+    %-  need
+    (extract-signed her-public-key signed-payload.open-packet)
+  ::  +decode-none: decode an unsigned, unencrypted packet
   ::
-  ++  decoder-core  .
+  ++  decode-none
+    ^-  [gifts=(list gift) authenticated=? =packet]
+    ::
+    :+  gifts=~
+      authenticated=%.n
+    ;;  packet
+    %-  cue
+    packet-blob
   --
 ::  +decode-raw-packet: deserialize packet from bytestream, reading header
 ::
@@ -2274,10 +2243,15 @@
   ?>  =(protocol-version version)
   ?>  =(checksum (end 0 20 (mug body)))
   ::
-  :+  :-  to=(end 3 receiver-width body)
+  :*  :-  to=(end 3 receiver-width body)
       from=(cut 3 [receiver-width sender-width] body)
-    encoding=message-encoding
-  packet=(rsh 3 (add receiver-width sender-width) body)
+  ::
+      encoding=message-encoding
+  ::
+      ;;  [origin=(unit @uxlane) content=@]
+      %-  cue
+      (rsh 3 (add receiver-width sender-width) body)
+  ==
 ::  +encode-raw-packet: serialize a packet into a bytestream
 ::
 ++  encode-raw-packet
@@ -2289,13 +2263,16 @@
   ::
   =/  sender-type   (encode-ship-type from.raw-packet)
   =/  sender-width  (bex +(sender-type))
-  ::  body: <<receiver sender content>>
+  ::
+  ::  body: <<receiver sender (jam [origin content])>>
   ::
   =/  body
     ;:  mix
       to.raw-packet
       (lsh 3 receiver-width from.raw-packet)
-      (lsh 3 (add receiver-width sender-width) packet-blob.raw-packet)
+      %^  lsh  3
+        (add receiver-width sender-width)
+      (jam [origin packet-blob]:raw-packet)
     ==
   ::
   =/  encoding-number  (encoding-to-number encoding.raw-packet)
@@ -2391,10 +2368,10 @@
 ::    (due to non-full-cone NAT).
 ::
 ++  set-forward-origin
-  |=  [=new=lane origin=(unit lane)]
+  |=  [heard-on=lane origin=(unit lane)]
   ^-  lane
   ::
-  ?~  origin  new-lane
+  ?~  origin  heard-on
   ?.  ?=(%if -.u.origin)
     u.origin
   [%ix +.u.origin]
