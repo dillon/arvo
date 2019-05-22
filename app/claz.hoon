@@ -17,9 +17,10 @@
 ::
 ++  in-progress
   %-  unit
-  $%  [%nonce nonce=eval-form:eval:nonce-glad]
+  $%  [%nonce nonce=eval-form:eval:null-glad]
   ==
 ::
+++  null-glad   (glad ,~)
 ++  nonce-glad  (glad ,@ud)
 ::
 +$  glad-input  response:rpc:jstd  ::TODO  maybe just json? idk refactor unwrap
@@ -186,64 +187,88 @@
   ^-  (quip move _this)
   [~ (fail-nonce tang)]
 ::
-++  sigh-json-rpc-response
+++  sigh-json-rpc-response-nonce
   |=  [=wire =response:rpc:jstd]
+  ^-  (quip move _this)
   ?~  in
     ~|(%no-in-progress !!)
-  ?-  -.u.in
-      %nonce
-    =/  m  nonce-glad
-    =^  r=[moves=(list move) =eval-result:eval:m]  nonce.u.in
-      (take:eval:m nonce.u.in wire response)
-    :-  moves.r
-    ?-  -.eval-result.r
-      %next  +>.$
-      %fail  (fail-nonce err.eval-result.r)
-      %done  (done-nonce value.eval-result.r)
-    ==
+  :: ?.  ?=(%nonce -.u.in)  ::NOTE  mint-vain rn
+  ::   ~|([%unexpected-response -.u.in] !!)
+  ::  nonce result
+  ::
+  =/  m  null-glad
+  =^  r=[moves=(list move) =eval-result:eval:m]  nonce.u.in
+    (take:eval:m nonce.u.in wire response)
+  :-  moves.r
+  ?-  -.eval-result.r
+    %next  this
+    %fail  (fail-nonce err.eval-result.r)
+    %done  (done-nonce value.eval-result.r)
   ==
 ::
 ++  fail-nonce
   |=  err=tang
-  ^+  +>
+  ^+  this
   ~&  'nonce fetching failed'
   ::TODO  error printing
-  +>.$(in ~)
+  this(in ~)
 ::
 ++  done-nonce  ::TODO  ??? why
-  |=  nonce=@ud
-  ^+  +>
+  |=  ~
+  ^+  this
   ::TODO  ??? store nonce in state then kick logic? or was logic already kicked?
-  +>.$(in ~)
+  this(in ~)
 ::
 ++  poke-noun
   |=  =command
   ^-  (quip move _this)
-  %-  done-nonce
-  =/  m  nonce-glad
-  ;<  nonce=@ud  bind:m  (get-next-nonce as.command)
-  ^-  output:m
-  :-  %done  ::TODO  ???
-  ?-  -.command
-      %generate
-    =-  [[- ~] this]
-    %+  write-file-transactions
-      path.command
-    ::TODO  probably just store network and nonce in tmp state?
-    ?-  -.batch.command
-      %single  [(single nonce [network as +.batch]:command) ~]
-      %deed    (deed nonce [network as +.batch]:command)
-      %lock    (lock nonce [network as +.batch]:command)
-    ==
-  ==
+  =.  in
+    %-  some
+    :-  %nonce
+    ^-  eval-form:eval:null-glad
+    *eval-form:eval:null-glad
+    :: ;<  nonce=@ud  bind:null-glad  (get-next-nonce as.command)
+    :: (pure:null-glad ~)  ::  and then, uh, nothing?
+  =^  moves  this
+    (sigh-json-rpc-response-nonce / *response:rpc:jstd)
+  [moves this]
+  :: :+  ~  %cont
+  :: |=  glad-input
+  :: ?-  -.command
+  ::     %generate
+  ::   =-  [[- ~] this]
+  ::   %+  write-file-transactions
+  ::     path.command
+  ::   ::TODO  probably just store network and nonce in tmp state?
+  ::   ?-  -.batch.command
+  ::     %single  [(single nonce [network as +.batch]:command) ~]
+  ::     %deed    (deed nonce [network as +.batch]:command)
+  ::     %lock    (lock nonce [network as +.batch]:command)
+  ::   ==
+  :: ==
 ::
 ++  get-next-nonce
   |=  for=address
   =/  m  nonce-glad
-  ^-  form:m
-  ::TODO  ??? does this go here or nah?
+  ;<  ~  bind:m
+    ::  initialization
+    ::
+    |=  glad-input
+    =-  [[[ost.bowl -] ~] this]
+    ^-  [%hiss wire ~ mark %hiss hiss:eyre]
+    :+  %hiss  /nonce
+    :+  ~  %json-rpc-response
+    :-  %hiss
+    *hiss:eyre
+    :: %+  request-to-hiss:rpc:jstd  ::NOTE  find error???
+    ::   (need (de-purl:html 'http://eth-mainnet.urbit.org:8545'))
+    :: ::TODO  add eth_getTransactionCount to stdlib
+    :: [%eth-block-number ~]
   |=  res=glad-input
-  ::TODO  parse response into nonce
+  :: ^-  output:m  ::  incorrect?
+  ?:  =(res *glad-input)
+    ::  got initialized?
+    [~ %wait ~]
   =/  nonce=@ud  314
   (pure:m nonce)
 ::
