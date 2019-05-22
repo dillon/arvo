@@ -7,11 +7,112 @@
 =,  ethereum
 =,  rpc
 =,  key
+=,  rpc:jstd
 ::
 |%
 ++  state
   $:  cli=shell
+      in=in-progress
   ==
+::
+++  in-progress
+  %-  unit
+  $%  [%nonce nonce=eval-form:eval:nonce-glad]
+  ==
+::
+++  nonce-glad  (glad ,@ud)
+::
++$  glad-input  response:rpc:jstd  ::TODO  maybe just json? idk refactor unwrap
+::
+++  glad-output-raw
+  |*  a=mold
+  $~  [~ %done *a]
+  $:  moves=(list move)
+      $=  next
+      $%  [%wait ~]
+          [%cont self=(glad-form-raw a)]
+          [%fail err=tang]
+          [%done value=a]
+      ==
+  ==
+::
+++  glad-form-raw
+  |*  a=mold
+  $-(glad-input (glad-output-raw a))
+::
+++  glad-fail
+  |=  err=tang
+  |=  glad-input
+  [~ ~ %fail err]
+::
+++  glad
+  |*  a=mold
+  |%
+  ++  output  (glad-output-raw a)  ::
+  ++  form    (glad-form-raw a)  ::  $-(input (output @ud))
+  ++  pure
+    |=  arg=a
+    ^-  form
+    |=  glad-input
+    [~ %done arg]
+  ::
+  ++  bind
+    |*  b=mold
+    |=  [m-b=(glad-form-raw b) fun=$-(b form)]
+    ^-  form
+    |=  input=glad-input
+    =/  b-res=(glad-output-raw b)
+      (m-b input)
+    ^-  output
+    :-  moves.b-res
+    ?-  -.next.b-res
+      %wait  [%wait ~]
+      %cont  [%cont ..$(m-b self.next.b-res)]
+      %fail  [%fail err.next.b-res]
+      %done  [%cont (fun value.next.b-res)]
+    ==
+  ::
+  ++  eval
+    |%
+    +$  eval-form
+      $:  effects=(list move)
+          =form
+      ==
+    ::
+    +$  eval-result
+      $%  [%next ~]
+          [%fail err=tang]
+          [%done value=a]
+      ==
+    ::
+    ++  take
+      =|  moves=(list move)
+      |=  [=eval-form =our=wire =glad-input]
+      ^-  [[(list move) =eval-result] _eval-form]
+      ::  run the glad callback
+      ::
+      =/  =output  (form.eval-form glad-input)
+      ::  add moves
+      ::
+      =.  moves
+        (weld moves moves.output)
+      ::  case-wise handle next steps
+      ::
+      ?-  -.next.output
+        %wait  [[moves %next ~] eval-form]
+        %fail  [[moves %fail err.next.output] eval-form]
+        %done  [[moves %done value.next.output] eval-form]
+      ::
+          %cont
+        ::  recurse to run continuation with initialization move
+        ::
+        %_  $
+          form.eval-form   self.next.output
+          glad-input       *response:rpc:jstd  ::TODO  empty unit of response:rpc:jstd?
+        ==
+      ==
+    --
+  --
 ::
 ++  shell
   $:  id=bone
@@ -19,7 +120,7 @@
   ==
 ::
 ++  command
-  $%  [%generate =path =network nonce=@ud =batch]
+  $%  [%generate =path =network as=address =batch]
   ==
 ::
 ++  network
@@ -31,7 +132,7 @@
 ::
 ++  batch
   $%  [%single =call]
-      [%deed as=address deeds-json=cord]
+      [%deed deeds-json=cord]
       [%lock what=(list ship) to=address =lockup]
   ==
 ::
@@ -80,9 +181,49 @@
   ^-  (quip move _this)
   [~ ..prep]
 ::
+++  sigh-tang-nonce
+  |=  [=wire =tang]
+  ^-  (quip move _this)
+  [~ (fail-nonce tang)]
+::
+++  sigh-json-rpc-response
+  |=  [=wire =response:rpc:jstd]
+  ?~  in
+    ~|(%no-in-progress !!)
+  ?-  -.u.in
+      %nonce
+    =/  m  nonce-glad
+    =^  r=[moves=(list move) =eval-result:eval:m]  nonce.u.in
+      (take:eval:m nonce.u.in wire response)
+    :-  moves.r
+    ?-  -.eval-result.r
+      %next  +>.$
+      %fail  (fail-nonce err.eval-result.r)
+      %done  (done-nonce value.eval-result.r)
+    ==
+  ==
+::
+++  fail-nonce
+  |=  err=tang
+  ^+  +>
+  ~&  'nonce fetching failed'
+  ::TODO  error printing
+  +>.$(in ~)
+::
+++  done-nonce  ::TODO  ??? why
+  |=  nonce=@ud
+  ^+  +>
+  ::TODO  ??? store nonce in state then kick logic? or was logic already kicked?
+  +>.$(in ~)
+::
 ++  poke-noun
   |=  =command
   ^-  (quip move _this)
+  %-  done-nonce
+  =/  m  nonce-glad
+  ;<  nonce=@ud  bind:m  (get-next-nonce as.command)
+  ^-  output:m
+  :-  %done  ::TODO  ???
   ?-  -.command
       %generate
     =-  [[- ~] this]
@@ -90,11 +231,21 @@
       path.command
     ::TODO  probably just store network and nonce in tmp state?
     ?-  -.batch.command
-      %single  [(single [network nonce +.batch]:command) ~]
-      %deed    (deed [network nonce +.batch]:command)
-      %lock    (lock [network nonce +.batch]:command)
+      %single  [(single nonce [network as +.batch]:command) ~]
+      %deed    (deed nonce [network as +.batch]:command)
+      %lock    (lock nonce [network as +.batch]:command)
     ==
   ==
+::
+++  get-next-nonce
+  |=  for=address
+  =/  m  nonce-glad
+  ^-  form:m
+  ::TODO  ??? does this go here or nah?
+  |=  res=glad-input
+  ::TODO  parse response into nonce
+  =/  nonce=@ud  314
+  (pure:m nonce)
 ::
 ++  tape-to-ux
   |=  t=tape
@@ -139,7 +290,7 @@
   ==
 ::
 ++  single
-  |=  [=network nonce=@ud =call]
+  |=  [nonce=@ud =network as=address =call]
   ^-  transaction
   =-  (do network nonce ecliptic -)
   ?-  -.call
@@ -154,7 +305,7 @@
   ==
 ::
 ++  deed
-  |=  [=network nonce=@ud as=address deeds-json=cord]
+  |=  [nonce=@ud =network as=address deeds-json=cord]
   ^-  (list transaction)
   =/  deeds=(list [=ship rights])
     (parse-registration deeds-json)
@@ -235,7 +386,7 @@
 ::      1) we need to batch-transfer stars to the ceremony
 ::      2) (not forget to register and) deposit already-active stars
 ++  lock
-  |=  [=network nonce=@ud what=(list ship) to=address =lockup]
+  |=  [nonce=@ud =network as=address what=(list ship) to=address =lockup]
   ^-  (list transaction)
   ~&  %assuming-lockup-done-by-ceremony
   ~&  %assuming-ceremony-controls-parents
@@ -247,11 +398,12 @@
     ?.  =(%czar (clan:title s))  [s]~
     (turn (gulf 1 255) |=(k=@ud (cat 3 s k)))
   =/  parents
-    =-  ~(tap in -)
-    %+  roll  what
-    |=  [s=ship ss=(set ship)]
-    ?>  =(%king (clan:title s))
-    (~(put in ss) (^sein:title s))
+    what
+    :: =-  ~(tap in -)
+    :: %+  roll  what
+    :: |=  [s=ship ss=(set ship)]
+    :: ?>  =(%king (clan:title s))
+    :: (~(put in ss) (^sein:title s))  ::TODO  suddenly -find.put.+2 ???
   ~|  %invalid-lockup-ships
   ?>  ~|  %does-this-also-work
       ?|  ?=(%linear -.lockup)
