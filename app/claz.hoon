@@ -12,12 +12,12 @@
 |%
 ++  state
   $:  cli=shell
-      in=in-progress
+      inp=in-progress
   ==
 ::
 ++  in-progress
   %-  unit
-  $%  [%nonce nonce=eval-form:eval:null-glad]
+  $%  [%nonce nonce=eval-form:eval:nonce-glad]
   ==
 ::
 ++  null-glad   (glad ,~)
@@ -190,15 +190,17 @@
 ++  sigh-json-rpc-response-nonce
   |=  [=wire =response:rpc:jstd]
   ^-  (quip move _this)
-  ?~  in
+  ?~  inp
     ~|(%no-in-progress !!)
-  :: ?.  ?=(%nonce -.u.in)  ::NOTE  mint-vain rn
-  ::   ~|([%unexpected-response -.u.in] !!)
+  :: ?.  ?=(%nonce -.u.inp)  ::NOTE  mint-vain rn
+  ::   ~|([%unexpected-response -.u.inp] !!)
+  ~&  %sigh-nonce
   ::  nonce result
   ::
-  =/  m  null-glad
-  =^  r=[moves=(list move) =eval-result:eval:m]  nonce.u.in
-    (take:eval:m nonce.u.in wire response)
+  =/  m  nonce-glad
+  =^  r=[moves=(list move) =eval-result:eval:m]  nonce.u.inp
+    (take:eval:m nonce.u.inp wire response)
+  ~&  [%sigh-did-eval r]
   :-  moves.r
   ?-  -.eval-result.r
     %next  this
@@ -211,24 +213,24 @@
   ^+  this
   ~&  'nonce fetching failed'
   ::TODO  error printing
-  this(in ~)
+  this(inp ~)
 ::
 ++  done-nonce  ::TODO  ??? why
-  |=  ~
+  |=  nonce=@ud
   ^+  this
-  ::TODO  ??? store nonce in state then kick logic? or was logic already kicked?
-  this(in ~)
+  ~&  [%done-nonce nonce]
+  ::TODO  continue work
+  this(inp ~)
 ::
 ++  poke-noun
   |=  =command
   ^-  (quip move _this)
-  =.  in
+  =.  inp
     %-  some
     :-  %nonce
-    ^-  eval-form:eval:null-glad
-    *eval-form:eval:null-glad
-    :: ;<  nonce=@ud  bind:null-glad  (get-next-nonce as.command)
-    :: (pure:null-glad ~)  ::  and then, uh, nothing?
+    ^-  eval-form:eval:nonce-glad
+    (get-next-nonce as.command)
+  ~&  %got-command--kicking-sigh
   =^  moves  this
     (sigh-json-rpc-response-nonce / *response:rpc:jstd)
   [moves this]
@@ -249,28 +251,36 @@
 ::
 ++  get-next-nonce
   |=  for=address
-  =/  m  nonce-glad
-  ;<  ~  bind:m
+  ^-  eval-form:eval:nonce-glad
+  :-  ~  ::  ??? unexpected but ok
+  ;<  ~  bind:nonce-glad
     ::  initialization
     ::
+    ^-  form:null-glad
     |=  glad-input
-    =-  [[[ost.bowl -] ~] this]
+    ~&  [%get-next-nonce-init for]
+    ^-  output:null-glad
+    =-  [[[ost.bowl -] ~] %done ~]
     ^-  [%hiss wire ~ mark %hiss hiss:eyre]
     :+  %hiss  /nonce
     :+  ~  %json-rpc-response
     :-  %hiss
-    *hiss:eyre
-    :: %+  request-to-hiss:rpc:jstd  ::NOTE  find error???
-    ::   (need (de-purl:html 'http://eth-mainnet.urbit.org:8545'))
-    :: ::TODO  add eth_getTransactionCount to stdlib
-    :: [%eth-block-number ~]
+    %+  json-request:rpc:ethereum  ::NOTE  find error???
+      (need (de-purl:html 'http://eth-mainnet.urbit.org:8545'))
+    %+  request-to-json
+      `'some-id'
+    ::TODO  add eth_getTransactionCount to stdlib
+    [%eth-block-number ~]
+  ^-  form:nonce-glad
   |=  res=glad-input
   :: ^-  output:m  ::  incorrect?
   ?:  =(res *glad-input)
     ::  got initialized?
+    ~&  [%get-next-nonce-init-wait]
     [~ %wait ~]
+  ~&  [%get-next-nonce-got-res res]
   =/  nonce=@ud  314
-  (pure:m nonce)
+  [~ %done nonce]
 ::
 ++  tape-to-ux
   |=  t=tape
@@ -423,12 +433,11 @@
     ?.  =(%czar (clan:title s))  [s]~
     (turn (gulf 1 255) |=(k=@ud (cat 3 s k)))
   =/  parents
-    what
-    :: =-  ~(tap in -)
-    :: %+  roll  what
-    :: |=  [s=ship ss=(set ship)]
-    :: ?>  =(%king (clan:title s))
-    :: (~(put in ss) (^sein:title s))  ::TODO  suddenly -find.put.+2 ???
+    =-  ~(tap in -)
+    %+  roll  what
+    |=  [s=ship ss=(set ship)]
+    ?>  =(%king (clan:title s))
+    (~(put in ss) (^sein:title s))
   ~|  %invalid-lockup-ships
   ?>  ~|  %does-this-also-work
       ?|  ?=(%linear -.lockup)
